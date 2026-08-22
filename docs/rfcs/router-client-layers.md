@@ -4,18 +4,8 @@ Status: draft. This document proposes an internal re-architecture of
 `waku/router`'s client implementation. It changes no user-facing API by
 itself; it defines the layering that subsequent refactoring PRs move toward.
 
-History: this document originally superseded PR #1's first memo (then at
-`docs/proposals/`, built around an injected `NavigationEngine`); that
-version no longer exists. PR #1 has since moved to this same path and the
-same toolkit model (`ee69bde`, `3630e5e2`) and the two drafts now agree on
-the architecture, the fences, the cache read capabilities
-(`getPrefetchedElements` + `hasCachedShell`), and the host contract with
-**no engine-private slot** (instant lives on history-binding wrappers).
-As of `42e3f43` there, both drafts also use the `adopt` seam on `load()`
-(the loader section records why overlay/swr passthrough was rejected: it
-would make the loader write the store). The drafts now match in
-substance; only plan packaging differs (eager redirect and `Link`
-pending as numbered steps here, follow-ups there).
+History: consolidated from two parallel drafts (PR #1, PR #2); the design
+discussion and the alternatives rejected along the way live on those PRs.
 
 ## Motivation
 
@@ -56,6 +46,17 @@ Split the router client into two layers:
   (including `unstable_instant`). A rewritten `waku-navigation` is a
   Navigation API binding. Each binding owns its own control flow and event
   topology.
+
+```
+L2 bindings   history/popstate (instant lives here)
+              Navigation API (waku-navigation rewrite)
+
+L1 core       protocol, load() → LoadOutcome, caches,
+              host contract, Slice, typed hooks, prefetch
+
+              waku/minimal (unchanged; overlay/swr
+              already abstract)
+```
 
 ### Design principles
 
@@ -131,7 +132,11 @@ load(requested: Route, opts: {
 type LoadOutcome =
   | { type: 'loaded';   // fetched; ready to commit
       route: Route; url: URL;
-      elements: Elements; follows: number }
+      elements: Elements; follows: number;
+      // true when elements came from the adopted
+      // promise: the store is already written,
+      // the binding must not apply the merge patch
+      adopted: boolean }
   | { type: 'reused';   // commit without fetching
       route: Route; url: URL; follows: number }
   | { type: 'external'; // leave the app
@@ -155,8 +160,8 @@ requested route with commit-time server-redirect resolution
 `loaded.route` the eagerly settled destination — resolved from the
 response's `ROUTE_ID`, with the binding applying the URL correction
 (history: `replaceState`; Navigation API: a flagged replace navigation) —
-is a real behavior change and lands as its own migration step with its own
-tests, not inside the extraction.
+is a real behavior change and lands as its own decoupled follow-up PR
+with its own tests, not inside the extraction.
 
 A prior attempt to extract pure navigation helpers (`navigate.ts`) failed
 when the elements store became the source of truth. The loader boundary
@@ -243,8 +248,13 @@ it exists.
   lack the feature ship the core hook unchanged.
 - Shared policy helpers: `shouldScrollByDefault`,
   `shouldScrollForRouteChange`, `scrollToHash`, `useRouteState` (route +
-  render-error + settled-route reading), a link registry hook (element ↔
-  href correlation and optimistic pending status), `useHmrRefetch`.
+  render-error + settled-route reading), `useHmrRefetch`; a link
+  registry hook (element ↔ href correlation and optimistic pending
+  status) arrives with the `Link` pending follow-up.
+
+Typegen (`pages.gen.ts`) and declaring `unstable_searchCodec` on a route
+stay server/app concerns; the hooks are generic over whatever `RoutePath`
+the app augments.
 
 ## Layer 2: binding responsibilities
 
@@ -296,6 +306,27 @@ transition, layout effect writes history. The instant path:
    store writes belong to the binding, so the binding makes that call and
    the loader only borrows its promise for control flow.
 
+   Three mechanics of `adopt`, each anchored in current behavior:
+
+   - **One writer per response.** Minimal's refetch handles _both_ store
+     phases of an adopted fetch — the overlay paint immediately and the
+     settled response as it streams in (that is what the SWR merge does).
+     So a `loaded` outcome with `adopted: true` means the store is
+     already written and the binding skips `buildMergePatch` — exactly
+     today's instant landing, which short-circuits the commit merge
+     (`client.tsx` ~1553). Applying the patch on top would double-merge.
+     Follow attempts (`follows > 0`) are loader-fetched and unmerged, so
+     `adopted` is `false` and the binding commits them as usual.
+   - **Error shape is already proven equal.** Today one `try/catch` feeds
+     `decideFollow` from both the instant refetch and the plain fetch
+     path (`client.tsx` ~1420–1452); an adopted promise rejects with the
+     same shapes `getErrorInfo` reads now.
+   - **Abort cancels, not orphans.** The binding passes the same signal
+     to its minimal refetch call that it passes to `load` — as the
+     instant path already does — so the underlying fetch is genuinely
+     cancelled; the loader additionally guards the adopted promise the
+     way it guards `prefetched` ones today (`abortable`).
+
 4. **URL**: push the requested URL _immediately_ on the paint, before the
    response settles. On a follow outcome, **replace** the entry already
    written — never push a second one. On a failure after the paint,
@@ -314,7 +345,8 @@ second implementation actually grows.
 Unifies on the registry + `useOptimistic` mechanism (as in
 waku-navigation today), because per-Link `useTransition` cannot correlate
 browser-initiated navigations. This is user-observable, so it ships as
-its own step gated by e2e _plus_ targeted unit tests, with the delta
+its own decoupled follow-up PR gated by e2e _plus_ targeted unit tests
+(the main-line rebuild keeps the current mechanism), with the delta
 spelled out:
 
 - Before: `pending` is true only for the clicked `Link`, driven by its
@@ -348,10 +380,10 @@ binding-private keys, and the Navigation API binding contains no
 
 ## Migration plan
 
-Each step lands green on the existing test suite; the public
-`waku/router/client` surface is unchanged until step 9. Steps 1–3 and 5
-are behavior-identical code motion; 4, 6, and 7 change observable
-behavior and say so.
+The main line is **entirely behavior-identical**: each step lands green
+on the existing test suite, and the public `waku/router/client` surface
+is unchanged until step 8. Behavior changes live only in the decoupled
+follow-ups, so a debate on any of them never blocks the structural work.
 
 1. **Caches module** — move prefetch manager (keep `mode`/`ttl`),
    static-path set, rscParams map to layer-1 module state; `clearCaches()`,
@@ -359,31 +391,37 @@ behavior and say so.
    Pure code motion — instant reads the same facts, now through the
    capabilities.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
-   `LoadOutcome`; `changeRoute` becomes its first consumer. Commit-time
-   redirect resolution stays put; behavior-identical. Loader gains direct
-   unit tests (no rendering).
+   `LoadOutcome` (including the `adopt` mechanics above); `changeRoute`
+   becomes its first consumer, and its instant path becomes `adopt`'s
+   first caller. Commit-time redirect resolution stays put. Loader gains
+   direct unit tests (no rendering), including the one-writer rule.
 3. **Merge-patch builder** — extract commit reconciliation.
-4. **Eager redirect resolution** — `loaded.route` becomes the settled
-   destination; commit-time `resolveServerRedirect` retires. Behavior
-   change, own tests (server-action interleaving is the case to cover).
-   May legitimately conclude that commit-time resolution stays (open
-   question 2); the plan does not depend on it landing.
-5. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice`
+4. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice`
    via `registerLazySlice`; typed hooks rebind to the contract. Instant
    stays on the history binding's widened `useRouter` only.
-6. **Link pending status** — registry + `useOptimistic` replaces per-Link
-   `useTransition`. User-observable (see delta above); own PR, gated by
-   e2e plus targeted unit tests.
-7. **History binding rebuild** — recompose `InnerRouter`/`Router` from the
-   toolkit (`useRouteState`, registry, scroll policy); instant confined;
-   old `changeRoute` plumbing deleted.
-8. **waku-navigation spike** against the in-tree layer 1 — validates the
+5. **Toolkit hooks** — `useRouteState`, scroll helpers, `useHmrRefetch`.
+   No `Link` pending rewrite here.
+6. **History binding rebuild** — recompose `InnerRouter`/`Router` from
+   the toolkit, keeping the existing per-Link `useTransition` pending
+   mechanism; instant confined; old `changeRoute` plumbing deleted.
+7. **waku-navigation spike** against the in-tree layer 1 — validates the
    toolkit shape with a second consumer _before_ the public surface
    freezes.
-9. **Entries** — publish the layer-1 surface as a named module; deprecate
+8. **Entries** — publish the layer-1 surface as a named module; deprecate
    the `unstable_` grab-bag exports.
-10. **waku-navigation rewrite** ships on the published entry (separate
-    repo).
+
+Decoupled follow-up PRs, in any order once the rebuild has landed:
+
+- **Eager redirect resolution** — `loaded.route` becomes the settled
+  destination; commit-time `resolveServerRedirect` retires. Own tests
+  (server-action interleaving is the case to cover). May legitimately
+  conclude that commit-time resolution stays (open question 2).
+- **`Link` pending status** — registry + `useOptimistic` replaces
+  per-Link `useTransition`, because per-Link transitions cannot
+  correlate browser-initiated navigations. User-observable (see the
+  delta above); gated by e2e plus targeted unit tests. The registry
+  hook ships to layer 1 with this PR.
+- **waku-navigation rewrite** on the published entry (separate repo).
 
 ## Non-goals
 
@@ -391,21 +429,25 @@ behavior and say so.
   forces it).
 - No preservation of waku-navigation's current implementation details.
 - No user-facing router API changes or new navigation features.
-- No redesign of `unstable_instant` beyond relocating it.
+- No redesign of `unstable_instant` beyond relocating it and spelling
+  out its URL-commit policy.
+- No `NavigationEngine` / `NavigationIntent` in the first
+  implementation — a shared engine interface is harvested from two
+  working bindings or not at all.
 
 ## Open questions
 
 1. `LoadOutcome` details: is `failed.restoreMeta` the right shape for the
    restore-base semantics, and should build-id mismatch be an outcome
    instead of a callback?
-2. Eager redirect resolution (step 4): any behavior commit-time
+2. Eager redirect resolution (follow-up): any behavior commit-time
    resolution supports that eager resolution cannot reproduce
    (interleaving with server actions is the suspect case)?
-3. The `adopt` seam: does handing the binding's in-flight refetch promise
-   to `load()` cover every case the current interleaved instant path
-   handles (abort mid-stream, invalidation during adoption)? Validated in
-   step 7; if it bends, the fallback is forwarding overlay/swr opaquely —
-   still with no `instant` flag on `load`.
+3. `adopt` residuals: prefetch invalidation firing _during_ adoption,
+   and rolling back an already-painted overlay when an adopted fetch
+   aborts mid-stream (the binding's `cancelPendingNavigation` analogue).
+   The one-writer, error-shape, and abort mechanics are specified above;
+   these two interleavings are validated in the rebuild (step 6).
 4. Entry naming for layer 1, and the deprecation window for the grab-bag.
 5. Should waku's history binding sit in a `bindings/`-style location from
    day one, so the Navigation API binding is a peer rather than an
