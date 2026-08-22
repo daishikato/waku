@@ -5,12 +5,10 @@ user-facing API change by itself. Subsequent refactoring PRs move toward
 this layering.
 
 This revision adopts the toolkit model (bindings own control flow; no
-driver interface up front). It has been updated against #2 (`a14b8cb`):
-opaque `overlay`/`swr` passthrough on `load()`, `getPrefetchedElements` plus
-`hasCachedShell`, and a waku-navigation spike before publishing entries.
-The remaining disagreement is the engine-private slot — this RFC keeps
-the host contract as `{ route, navigate }` and puts instant on history
-wrappers, not an opaque slot.
+driver interface up front). It now matches #2 on the remaining seam too:
+the binding owns the instant paint (minimal overlay/swr), and `load()`
+takes `adopt` so the follow loop shares that one in-flight fetch. Overlay
+and swr stay off `load()` so the loader never writes the store.
 
 ## Motivation
 
@@ -110,14 +108,16 @@ A step is not done if it moves a right-hand item into Layer 1.
 | Protocol, `load()` / `LoadOutcome`, follow loop | `unstable_instant` (any flag, option, or branch) |
 | Prefetch + session shell + static-path set | Skip-transition / paint-before-response |
 | `getPrefetchedElements` (snapshot) + `hasCachedShell` (boolean) | Cache stores / Maps returned to bindings |
-| Overlay/swr forwarded opaquely on `load()` | Instant overlay construction, early URL paint |
+| `adopt` (in-flight elements promise on `load()`) | Overlay/swr construction, early URL paint |
 | Follow + abort (`signal` accepted, not owned) | History vs Navigation control flow |
 | define-router slots / meta / slices | create-pages page/layout builders, typegen |
 | params / search hooks | `history.pushState` / `navigation.navigate` |
 | `prefetchRoute({ mode, ttl })` | Driver / `NavigationEngine` / `Intent` / opaque host slot for instant |
 
 If a flag named `instant` appears on `load()` or the host `navigate`, that
-is the leak. Overlay/swr passthrough is not that leak.
+is the leak. `adopt` is not that leak. Overlay/swr passthrough would be:
+those options only take effect in `mergeElements`, so forwarding them
+would make the loader write the store.
 
 ## Layer 1 API
 
@@ -150,10 +150,11 @@ plain async function. The loader never touches the element store.
 load(requested: Route, opts: {
   signal: AbortSignal;
   refetch?: boolean;
+  // in-flight elements promise for attempt 0 instead of fetching.
+  // the caller started it (instant paint). follow attempts fetch normally.
+  adopt?: Promise<Elements>;
   onBuildIdMismatch?: (url: URL) => void;
   onInvalidate?: (url: URL) => void;
-  overlay?: Elements; // opaque passthrough to minimal
-  swr?: { pin: (key: string | symbol) => boolean; base?: Elements };
 }): Promise<LoadOutcome>
 
 type LoadOutcome =
@@ -186,11 +187,12 @@ extracts the commit reconciliation (the guard against concurrent
 server-action merges). The binding decides _when_ to apply it; the loader
 never touches the store.
 
-`load()` forwards minimal's `overlay` / `swr` opaquely so the history
-binding's instant path shares the follow loop instead of duplicating it.
-The fence: the moment that passthrough grows an `instant` field, it is
-the leak. Instant overlay *construction* (which keys, which pin) stays
-in the binding.
+`load()` does not take `overlay` / `swr`. Those are merge options: they
+only take effect in minimal's `mergeElements`, so forwarding them would
+make the loader write the store. Instant paint is a store write; the
+binding calls minimal itself and hands the same promise to
+`load({ adopt })` for attempt 0's error/follow handling. One fetch,
+follow loop shared, loader stays store-free.
 
 ### Caches (module state, internal)
 
@@ -274,8 +276,8 @@ feature.
 
 ### Instant URL commit (history binding — must be explicit)
 
-This is the part a private slot would hide. It is history-binding code.
-The loader does not know whether a URL was already committed.
+History-binding code. The loader does not know whether a URL was already
+committed.
 
 **Wait-then-commit (default):** `load()` → apply merge patch inside a
 transition → layout effect writes history (`push` / `replace`) as today.
@@ -285,9 +287,10 @@ transition → layout effect writes history (`push` / `replace`) as today.
 1. Gate with `hasCachedShell(route, currentElements)`. If false, take the
    wait-then-commit path (including `startTransition`).
 2. Do not wrap the paint in an outer `startTransition`.
-3. `load(..., { overlay, swr })` with overlay `ROUTE` + binding commit
-   metadata, `swr` pin, `base: getPrefetchedElements(route)`. Follow loop
-   stays inside `load()`.
+3. Binding calls minimal refetch with overlay (`ROUTE` + commit metadata)
+   and `swr` (pin, `base: getPrefetchedElements(route)`). Then
+   `load({ signal, adopt })` with that same promise. One fetch; follow
+   attempts inside `load()` fetch normally (`follows > 0` fails the gate).
 4. **Push the requested URL immediately** (before the response).
 5. On a **follow** outcome: **replace** the URL already written. Do not
    push a second entry. (`follows > 0` after an early push is replace.)
@@ -311,9 +314,9 @@ the entries step. Do not freeze a driver interface.
    `getPrefetchedElements`, `hasCachedShell`; internal factory for tests.
    Pure code motion.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
-   `LoadOutcome` and opaque overlay/swr passthrough; `changeRoute` is the
-   first consumer. **Behavior-identical** (commit-time redirect resolution
-   stays). Loader unit tests, no rendering.
+   `LoadOutcome` and `adopt`; `changeRoute` is the first consumer.
+   **Behavior-identical** (commit-time redirect resolution stays). Loader
+   unit tests, no rendering.
 3. **Merge-patch builder** — extract commit reconciliation.
 4. **Contract slim** — `RouterContext` → `{ route, navigate }` (no private
    slot); `Slice` via `registerLazySlice`; typed hooks rebind to the
@@ -369,7 +372,11 @@ in-tree history binding and a Navigation binding both exist.
    instead of a callback?
 2. After behavior-identical `load()`, is eager server-redirect resolution
    worth a follow-up, or does commit-time resolution stay?
-3. Entry naming for layer 1, and the deprecation window for the grab-bag.
-4. Should waku's history binding sit in a `bindings/`-style location from
+3. Does `adopt` cover every case the current interleaved instant path
+   handles (abort mid-stream, invalidation during adoption)? Validated in
+   the history-binding rebuild; fallback is overlay/swr passthrough, still
+   with no `instant` flag on `load`.
+4. Entry naming for layer 1, and the deprecation window for the grab-bag.
+5. Should waku's history binding sit in a `bindings/`-style location from
    day one, so the Navigation API binding is a peer rather than an
    afterthought?
