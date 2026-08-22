@@ -5,8 +5,12 @@ user-facing API change by itself. Subsequent refactoring PRs move toward
 this layering.
 
 This revision adopts the toolkit model (bindings own control flow; no
-driver interface up front) and keeps the leak fence, prefetch `mode`/`ttl`
-surface, and instant URL-commit policy as acceptance criteria.
+driver interface up front). It has been updated against #2 (`a14b8cb`):
+opaque `overlay`/`swr` passthrough on `load()`, `getPrefetchedElements` plus
+`hasCachedShell`, and a waku-navigation spike before publishing entries.
+The remaining disagreement is the engine-private slot — this RFC keeps
+the host contract as `{ route, navigate }` and puts instant on history
+wrappers, not an opaque slot.
 
 ## Motivation
 
@@ -80,12 +84,13 @@ L1 core         protocol, load() → LoadOutcome, caches, host contract,
    what a caller can do, never internal collections. (The `lazySliceIds`
    crash is what storage-shaped contracts produce.)
 3. **Caches live in layer 1** as module state, matching existing precedent
-   (`savedRscParams`, minimal's SWR WeakMaps). Bindings never see cache
-   objects. They may call capabilities such as `hasCachedShell`.
-   Consequences: prefetch is a plain function needing no host; HMR clearing
-   is one exported call; multiple router roots share caches (correct: same
-   app, same server). Cost: tests need an internal factory/reset for
-   isolation, and the module must remain strictly client-side.
+   (`savedRscParams`, minimal's SWR WeakMaps). Bindings never hold or
+   manage cache stores. They call read capabilities
+   (`getPrefetchedElements`, `hasCachedShell`). Consequences: prefetch is
+   a plain function needing no host; HMR clearing is one exported call;
+   multiple router roots share caches (correct: same app, same server).
+   Cost: tests need an internal factory/reset for isolation, and the
+   module must remain strictly client-side.
 4. **`unstable_instant` is confined to the history binding.** The protocol,
    loader, contract, and typed shared surface never mention it. Its
    mechanism (overlay merge, SWR pinning) already lives in
@@ -102,17 +107,17 @@ A step is not done if it moves a right-hand item into Layer 1.
 
 | Layer 1 | Not Layer 1 |
 | --- | --- |
-| Protocol, `load()` / `LoadOutcome`, follow loop | `unstable_instant` |
+| Protocol, `load()` / `LoadOutcome`, follow loop | `unstable_instant` (any flag, option, or branch) |
 | Prefetch + session shell + static-path set | Skip-transition / paint-before-response |
-| `hasCachedShell` (boolean capability) | Returning cache objects / `getShell` |
-| Overlay/swr only as minimal merge tools the binding may call | Instant overlay construction, early URL paint |
+| `getPrefetchedElements` (snapshot) + `hasCachedShell` (boolean) | Cache stores / Maps returned to bindings |
+| Overlay/swr forwarded opaquely on `load()` | Instant overlay construction, early URL paint |
 | Follow + abort (`signal` accepted, not owned) | History vs Navigation control flow |
-| define-router slots / meta / slices | create-pages page/layout builders |
-| params / search hooks | Typegen, route `getConfig` codecs |
-| `prefetchRoute({ mode, ttl })` | Driver / `NavigationEngine` / `Intent` |
+| define-router slots / meta / slices | create-pages page/layout builders, typegen |
+| params / search hooks | `history.pushState` / `navigation.navigate` |
+| `prefetchRoute({ mode, ttl })` | Driver / `NavigationEngine` / `Intent` / opaque host slot for instant |
 
 If a flag named `instant` appears on `load()` or the host `navigate`, that
-is the leak.
+is the leak. Overlay/swr passthrough is not that leak.
 
 ## Layer 1 API
 
@@ -147,6 +152,8 @@ load(requested: Route, opts: {
   refetch?: boolean;
   onBuildIdMismatch?: (url: URL) => void;
   onInvalidate?: (url: URL) => void;
+  overlay?: Elements; // opaque passthrough to minimal
+  swr?: { pin: (key: string | symbol) => boolean; base?: Elements };
 }): Promise<LoadOutcome>
 
 type LoadOutcome =
@@ -177,16 +184,19 @@ buildMergePatch(
 
 extracts the commit reconciliation (the guard against concurrent
 server-action merges). The binding decides _when_ to apply it; the loader
-never touches the store. Instant does not use this helper for its first
-paint — it calls minimal overlay/swr itself.
+never touches the store.
 
-`load()` does not take `overlay` / `swr`. Those stay on minimal. The
-history binding’s instant path is a caller of minimal, not a loader flag.
+`load()` forwards minimal's `overlay` / `swr` opaquely so the history
+binding's instant path shares the follow loop instead of duplicating it.
+The fence: the moment that passthrough grows an `instant` field, it is
+the leak. Instant overlay *construction* (which keys, which pin) stays
+in the binding.
 
 ### Caches (module state, internal)
 
 ```ts
 prefetchRoute(route, opts?: { mode?: 'always' | 'once'; ttl?: number }): void
+getPrefetchedElements(route): Elements | undefined // snapshot, never the store
 hasCachedShell(route, currentElements: Elements): boolean
 clearCaches(): void
 // internal: createCaches() for test isolation
@@ -197,9 +207,11 @@ clearCaches(): void
   `mode: 'once'` warms immutable slots for the `rscPath` (session shell),
   ignoring query — the same surface instant uses, not an instant API.
 - Static-path set: after `IS_STATIC`, later visits skip refetch.
-- `hasCachedShell` is the read path instant needs: true when the route slot
-  is immutable in `currentElements` or in the session shell cache. Same
-  gate as today’s `canCommitInstantly`. It does not return cache objects.
+- `getPrefetchedElements` is the general read: SWR `base` reuse is one
+  caller. Instant needs the snapshot, not only a boolean.
+- `hasCachedShell` is today’s `canCommitInstantly` as a capability: true
+  when the route slot is immutable in `currentElements` or in that
+  snapshot. Bindings should not reimplement the immutability check.
 - rscParams identity map, lazy-slice registrations, server-action listener
   that learns static paths.
 
@@ -219,13 +231,14 @@ type RouterHost = {
 
 That is the whole public contract. Prefetching, slice bookkeeping, and
 codec resolution are layer-1 module concerns, not host obligations. No
-`instant`, no overlay hooks, no commit strategies.
+`instant`, no overlay hooks, no commit strategies, **no opaque private
+slot**. Instant is a history-binding `useRouter` / `Link` wrapper that
+closes over history dispatch. A shared L1 `Link` that reads a slot for
+`unstable_instant` is how the feature leaks back into the core.
 
 The history binding keeps **binding-private** commit metadata (today’s
-`RouterState` symbol) in the elements store. That is not a shared engine
-slot for “whatever instant needs.” Instant’s URL policy is written out in
-the history binding section below. A Navigation API binding does not need
-`RouterState`.
+`RouterState` symbol) in the elements store. A Navigation API binding
+does not need `RouterState`.
 
 ### Components and hooks (contract-bound)
 
@@ -272,15 +285,15 @@ transition → layout effect writes history (`push` / `replace`) as today.
 1. Gate with `hasCachedShell(route, currentElements)`. If false, take the
    wait-then-commit path (including `startTransition`).
 2. Do not wrap the paint in an outer `startTransition`.
-3. First paint via minimal: overlay `ROUTE` + binding commit metadata;
-   `swr` pin of immutable/meta keys; adopt in-flight prefetch if any.
+3. `load(..., { overlay, swr })` with overlay `ROUTE` + binding commit
+   metadata, `swr` pin, `base: getPrefetchedElements(route)`. Follow loop
+   stays inside `load()`.
 4. **Push the requested URL immediately** (before the response).
-5. Continue `load()` for fetch/follow.
-6. On a **follow** outcome: **replace** the URL already written. Do not
+5. On a **follow** outcome: **replace** the URL already written. Do not
    push a second entry. (`follows > 0` after an early push is replace.)
-7. On **fail** after paint: `restoreMeta` as today; replace the failure
+6. On **fail** after paint: `restoreMeta` as today; replace the failure
    URL onto the same entry.
-8. Scroll once on the instant paint, not again when the response lands.
+7. Scroll once on the instant paint, not again when the response lands.
 
 A later Navigation-API instant, if any, would need its own analogue
 (intercept already holds the URL; follow is a replace navigation). Do not
@@ -294,23 +307,26 @@ test suite**. The public `waku/router/client` surface is unchanged until
 the entries step. Do not freeze a driver interface.
 
 1. **Caches module** — move prefetch manager (keep `mode` / `ttl`),
-   static-path set, rscParams map to layer-1 module state; `clearCaches()`;
-   `hasCachedShell`; internal factory for tests. Pure code motion.
-   Instant still reads the same facts, now through the capability.
+   static-path set, rscParams map; `clearCaches()`,
+   `getPrefetchedElements`, `hasCachedShell`; internal factory for tests.
+   Pure code motion.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
-   `LoadOutcome`; `changeRoute` is the first consumer. **Behavior-identical**
-   (commit-time redirect resolution stays). Loader unit tests, no rendering.
+   `LoadOutcome` and opaque overlay/swr passthrough; `changeRoute` is the
+   first consumer. **Behavior-identical** (commit-time redirect resolution
+   stays). Loader unit tests, no rendering.
 3. **Merge-patch builder** — extract commit reconciliation.
-4. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice` via
-   `registerLazySlice`; typed hooks rebind to the contract. Instant stays
-   on the history `useRouter` wrapper only.
+4. **Contract slim** — `RouterContext` → `{ route, navigate }` (no private
+   slot); `Slice` via `registerLazySlice`; typed hooks rebind to the
+   contract. Instant stays on the history `useRouter` / `Link` wrappers.
 5. **Toolkit hooks** — `useRouteState`, scroll helpers, `useHmrRefetch`.
    **No** `Link` pending-status rewrite in this step.
 6. **History binding rebuild** — recompose `InnerRouter` / `Router` from
    the toolkit; instant confined; URL commit/replace-on-follow as specified
    above; old `changeRoute` plumbing deleted. Existing router-client tests
    (including instant) stay the gate.
-7. **Entries** — publish the layer-1 surface as a named module; deprecate
+7. **waku-navigation spike** against in-tree layer 1 — second consumer
+   before the public surface freezes.
+8. **Entries** — publish the layer-1 surface as a named module; deprecate
    the `unstable_` grab-bag exports.
 
 Follow-up PRs (not bundled into the steps above):
@@ -318,12 +334,20 @@ Follow-up PRs (not bundled into the steps above):
 - **Eager server-redirect in the loader** — only after step 2 is identical;
   own tests for server-action interleaving.
 - **`Link` pending status** — registry + `useOptimistic`, because per-Link
-  `useTransition` cannot correlate browser-initiated navigations. User-observable;
-  own PR with before/after behavior; e2e plus targeted unit tests. Not
-  only e2e-gated.
-- **waku-navigation rewrite** as a Navigation API binding over layer 1
-  (separate repo; not a blocker). No `unstable_instant` unless a later
-  binding adds it.
+  `useTransition` cannot correlate browser-initiated navigations.
+  User-observable; own PR with before/after:
+
+  - Before: `pending` is true only for the clicked `Link`, driven by its
+    own `useTransition`; programmatic and back/forward never mark a `Link`
+    pending.
+  - After: clicked `Link` matched by element identity (same-`to` links
+    stay independent); source-less navigations may mark matching hrefs
+    pending; optimistic status reverts on commit/abort/error.
+    `unstable_startTransition` bypass preserved.
+
+  E2e plus targeted unit tests. Not only e2e-gated.
+- **waku-navigation rewrite** ships on the published entry (separate repo).
+  No `unstable_instant` unless a later binding adds it.
 
 Package split (`waku/router/navigation` vs `waku-navigation`) only if the
 in-tree history binding and a Navigation binding both exist.
