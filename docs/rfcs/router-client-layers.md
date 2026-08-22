@@ -11,10 +11,11 @@ same toolkit model (`ee69bde`, `3630e5e2`) and the two drafts now agree on
 the architecture, the fences, the cache read capabilities
 (`getPrefetchedElements` + `hasCachedShell`), and the host contract with
 **no engine-private slot** (instant lives on history-binding wrappers).
-The one remaining difference is the instant fetch seam on `load()` —
-`adopt` here, opaque overlay/swr passthrough there; see the loader
-section for why passthrough conflicts with the loader's store-free
-invariant.
+As of `42e3f43` there, both drafts also use the `adopt` seam on `load()`
+(the loader section records why overlay/swr passthrough was rejected: it
+would make the loader write the store). The drafts now match in
+substance; only plan packaging differs (eager redirect and `Link`
+pending as numbered steps here, follow-ups there).
 
 ## Motivation
 
