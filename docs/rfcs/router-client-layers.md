@@ -4,14 +4,17 @@ Status: draft. This document proposes an internal re-architecture of
 `waku/router`'s client implementation. It changes no user-facing API by
 itself; it defines the layering that subsequent refactoring PRs move toward.
 
-It supersedes the memo from PR #1 (`docs/proposals/router-client-layers.md`
-on that branch) and folds in its leak-fence criteria and prefetch surface;
-`docs/rfcs/` is the single location going forward. PR #1's later revision
-(`ee69bde`) adopted this document's architecture; this version absorbs its
-improvements (instant URL-commit policy spelled out, binding-private
-context instead of a contract slot, Link testing rigor) and resolves the
-two seams where the drafts still differed (`load()` fetch adoption, cache
-read capabilities).
+History: this document originally superseded PR #1's first memo (then at
+`docs/proposals/`, built around an injected `NavigationEngine`); that
+version no longer exists. PR #1 has since moved to this same path and the
+same toolkit model (`ee69bde`, `3630e5e2`) and the two drafts now agree on
+the architecture, the fences, the cache read capabilities
+(`getPrefetchedElements` + `hasCachedShell`), and the host contract with
+**no engine-private slot** (instant lives on history-binding wrappers).
+The one remaining difference is the instant fetch seam on `load()` —
+`adopt` here, opaque overlay/swr passthrough there; see the loader
+section for why passthrough conflicts with the loader's store-free
+invariant.
 
 ## Motivation
 
@@ -283,6 +286,15 @@ transition, layout effect writes history. The instant path:
    follow attempts fetch normally (and are never instant — `follows > 0`
    fails the gate). The fence test stands: the moment `load` grows an
    `instant` flag, that is the leak this document exists to prevent.
+
+   Why `adopt` and not forwarding `overlay`/`swr` through `load()`: those
+   are _merge_ options — they take effect only when handed to minimal's
+   `mergeElements`, so a loader that forwards them must perform the merge
+   itself, and the loader's store-free invariant ("never touches the
+   element store") is gone. The instant paint is a store write by design;
+   store writes belong to the binding, so the binding makes that call and
+   the loader only borrows its promise for control flow.
+
 4. **URL**: push the requested URL _immediately_ on the paint, before the
    response settles. On a follow outcome, **replace** the entry already
    written — never push a second one. On a failure after the paint,
