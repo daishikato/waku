@@ -319,8 +319,9 @@ transition, layout effect writes history. The instant path:
      `adopted` is `false` and the binding commits them as usual.
    - **Error shape is already proven equal.** Today one `try/catch` feeds
      `decideFollow` from both the instant refetch and the plain fetch
-     path (`client.tsx` ~1420–1452); an adopted promise rejects with the
-     same shapes `getErrorInfo` reads now.
+     path (`client.tsx` ~1420–1452). The contract, stated explicitly: an
+     adopted promise must reject with the `fetchRsc`/`checkStatus` error
+     shapes `getErrorInfo` reads — which minimal's refetch already does.
    - **Abort cancels, not orphans.** The binding passes the same signal
      to its minimal refetch call that it passes to `load` — as the
      instant path already does — so the underlying fetch is genuinely
