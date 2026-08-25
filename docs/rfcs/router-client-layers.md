@@ -375,10 +375,12 @@ A step is not done if it moves a right-hand item into layer 1:
 | `adopt` (an elements promise on `load`)  | overlay/swr construction, early URL paint                                         |
 | cache read capabilities (gate, snapshot) | create-pages page/layout builders, typegen                                        |
 
-And in the other direction: bindings never import cache stores, never
-write elements outside `buildMergePatch` output plus their own
-binding-private keys, and the Navigation API binding contains no
-`unstable_instant`.
+And in the other direction: bindings never import cache stores; the
+Navigation API binding contains no `unstable_instant`; and a binding
+writes elements only via (a) `buildMergePatch` output, (b) its
+binding-private keys, and (c) its adopted instant refetch — the one
+binding-owned direct store write, which the one-writer rule exists to
+govern.
 
 ## Migration plan
 
@@ -393,13 +395,15 @@ follow-ups, so a debate on any of them never blocks the structural work.
    Pure code motion — instant reads the same facts, now through the
    capabilities.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
-   `LoadOutcome` (including the `adopt` mechanics above); `changeRoute`
-   becomes its first consumer, and its instant path becomes `adopt`'s
-   first caller _in the same step_: instant shares the follow loop today,
-   so deferring the `adopt` wiring to the rebuild would leave two live
-   follow loops mid-migration. Commit-time redirect resolution stays put;
-   the existing instant tests gate the wiring. Loader gains direct unit
-   tests (no rendering), including the one-writer rule.
+   `LoadOutcome`; `changeRoute` becomes its first consumer for
+   non-instant navigation. `adopt` lands on the signature with its
+   one-writer unit tests but **unused**: the instant path keeps its
+   current interleaved mechanism until the rebuild (step 6), `adopt`'s
+   first production caller. The accepted cost is a temporary second copy
+   of follow handling for instant inside `changeRoute` — the extract's
+   behavior-identical promise outranks the interim duplication.
+   Commit-time redirect resolution stays put. Loader gains direct unit
+   tests (no rendering).
 3. **Merge-patch builder** — extract commit reconciliation.
 4. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice`
    via `registerLazySlice`; typed hooks rebind to the contract. Instant
@@ -408,7 +412,10 @@ follow-ups, so a debate on any of them never blocks the structural work.
    No `Link` pending rewrite here.
 6. **History binding rebuild** — recompose `InnerRouter`/`Router` from
    the toolkit, keeping the existing per-Link `useTransition` pending
-   mechanism; instant confined; old `changeRoute` plumbing deleted.
+   mechanism; instant moves onto `adopt` here (its first production
+   caller), retiring the interim duplicated follow handling; old
+   `changeRoute` plumbing deleted. Existing router-client tests,
+   including instant, stay the gate.
 7. **waku-navigation spike** against the in-tree layer 1 — validates the
    toolkit shape with a second consumer _before_ the public surface
    freezes.
