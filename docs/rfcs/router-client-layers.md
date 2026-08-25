@@ -207,14 +207,12 @@ rscParams identity map, and lazy-slice registrations. The server-action
 elements listener that learns static paths moves here too. ETags stay in
 minimal.
 
-The two read capabilities are the path principle 3 requires, and both are
-needed: `hasCachedShell` answers the instant gate (route slot immutable in
-the current elements or the warmed shell), but a boolean cannot supply the
-prefetched elements that instant passes to minimal as the SWR base —
-`getPrefetchedElements` returns that snapshot. A snapshot is not the
-store; neither export hands out a live cache object, and neither is
-instant-shaped (prefetch consumers read the same way). Instant does not
-own a second store.
+Two reads, two purposes: `hasCachedShell` answers the instant gate (route
+slot immutable in the current elements or the warmed shell — bindings do
+not reimplement the immutability check), and `getPrefetchedElements`
+supplies the snapshot instant passes to minimal as the SWR base, which a
+boolean cannot. Both return snapshots, never live cache objects. Instant
+does not own a second store.
 
 ### Host contract (React context)
 
@@ -299,16 +297,13 @@ transition, layout effect writes history. The instant path:
    `load(route, { signal, adopt })`. One fetch: the loader adopts it for
    the first attempt and runs its normal error/follow handling on it;
    follow attempts fetch normally (and are never instant — `follows > 0`
-   fails the gate). The fence test stands: the moment `load` grows an
-   `instant` flag, that is the leak this document exists to prevent.
+   fails the gate).
 
-   Why `adopt` and not forwarding `overlay`/`swr` through `load()`: those
-   are _merge_ options — they take effect only when handed to minimal's
-   `mergeElements`, so a loader that forwards them must perform the merge
-   itself, and the loader's store-free invariant ("never touches the
-   element store") is gone. The instant paint is a store write by design;
-   store writes belong to the binding, so the binding makes that call and
-   the loader only borrows its promise for control flow.
+   `load()` does not take `overlay`/`swr`. They are _merge_ options —
+   effective only inside minimal's `mergeElements` — so forwarding them
+   would make the loader write the store. The instant paint is a store
+   write; store writes belong to the binding, which makes that call and
+   lends the loader its promise for control flow only.
 
    Three mechanics of `adopt`, each anchored in current behavior:
 
