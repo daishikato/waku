@@ -32,7 +32,11 @@ router client and the cost of not having a real layer to build on:
   `lazySliceIds`, so `<Slice lazy>` crashes against current waku.
 
 The server side already has clean layering (`createPages` is a wrapper over
-`unstable_defineRouter`). The client has nothing equivalent.
+`unstable_defineRouter`). The client has nothing equivalent. Note that
+create-pages is a server API: the shared client contract is
+**define-router** (`root` / `route:` slots, `ROUTE` / `HAS404` /
+`IS_STATIC`, slices). Layer 2 does not have to mirror create-pages, and a
+Navigation API binding may use layer 1 only.
 
 ## Proposal
 
@@ -314,8 +318,9 @@ transition, layout effect writes history. The instant path:
      So a `loaded` outcome with `adopted: true` means the store is
      already written and the binding skips `buildMergePatch` — exactly
      today's instant landing, which short-circuits the commit merge
-     (`client.tsx` ~1553). Applying the patch on top would double-merge.
-     Follow attempts (`follows > 0`) are loader-fetched and unmerged, so
+     (`client.tsx` ~1553). Two writers on the settled payload (SWR and
+     `buildMergePatch`) is the double-merge bug this seam exists to
+     prevent. Follow attempts (`follows > 0`) are loader-fetched and unmerged, so
      `adopted` is `false` and the binding commits them as usual.
    - **Error shape is already proven equal.** Today one `try/catch` feeds
      `decideFollow` from both the instant refetch and the plain fetch
@@ -362,17 +367,18 @@ spelled out:
 
 ## Leak fences (acceptance criteria)
 
-Checked at review time for every migration step:
+A step is not done if it moves a right-hand item into layer 1:
 
-| Belongs in layer 1                       | Must never appear in layer 1                |
-| ---------------------------------------- | ------------------------------------------- |
-| loader, follow + abort, merge patch      | `instant` (any flag, option, or branch)     |
-| prefetch cache + read capability         | skip-transition / paint-before-response     |
-| define-router slots / meta / slices      | `history.pushState` / `navigation.navigate` |
-| params / search hooks, codec resolution  | popstate / `navigate`-event listeners       |
-| contract: `route` + `navigate`           | `RouterState` commit metadata               |
-| `adopt` (an elements promise on `load`)  | overlay/swr construction, early URL paint   |
-| cache read capabilities (gate, snapshot) | create-pages page/layout builders, typegen  |
+| Belongs in layer 1                       | Must never appear in layer 1                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| loader, follow + abort, merge patch      | `instant` (any flag, option, or branch)                                           |
+| toolkit functions and hooks              | driver interfaces (`NavigationEngine` / `Intent`); an engine slot on the contract |
+| prefetch cache + read capability         | skip-transition / paint-before-response                                           |
+| define-router slots / meta / slices      | `history.pushState` / `navigation.navigate`                                       |
+| params / search hooks, codec resolution  | popstate / `navigate`-event listeners                                             |
+| contract: `route` + `navigate`           | `RouterState` commit metadata                                                     |
+| `adopt` (an elements promise on `load`)  | overlay/swr construction, early URL paint                                         |
+| cache read capabilities (gate, snapshot) | create-pages page/layout builders, typegen                                        |
 
 And in the other direction: bindings never import cache stores, never
 write elements outside `buildMergePatch` output plus their own
