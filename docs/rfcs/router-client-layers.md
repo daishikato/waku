@@ -395,8 +395,11 @@ follow-ups, so a debate on any of them never blocks the structural work.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
    `LoadOutcome` (including the `adopt` mechanics above); `changeRoute`
    becomes its first consumer, and its instant path becomes `adopt`'s
-   first caller. Commit-time redirect resolution stays put. Loader gains
-   direct unit tests (no rendering), including the one-writer rule.
+   first caller _in the same step_: instant shares the follow loop today,
+   so deferring the `adopt` wiring to the rebuild would leave two live
+   follow loops mid-migration. Commit-time redirect resolution stays put;
+   the existing instant tests gate the wiring. Loader gains direct unit
+   tests (no rendering), including the one-writer rule.
 3. **Merge-patch builder** — extract commit reconciliation.
 4. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice`
    via `registerLazySlice`; typed hooks rebind to the contract. Instant
