@@ -1,0 +1,238 @@
+/** @vitest-environment happy-dom */
+
+import { act } from 'react';
+import type { ReactElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
+import * as minimalClient from '../src/minimal/client.js';
+import { INTERNAL_ServerRoot } from '../src/minimal/client.js';
+import * as caches from '../src/router/client-utils/caches.js';
+import {
+  clearCaches,
+  clearRegisteredLazySlices,
+  registerLazySlice,
+} from '../src/router/client-utils/caches.js';
+import {
+  useHmrRefetch,
+  useInitialRoute,
+} from '../src/router/client-utils/route-state-hooks.js';
+import * as slice from '../src/router/client-utils/slice.js';
+import {
+  ROUTE_ID,
+  encodeRoutePath,
+} from '../src/router/isomorphic-utils/route-path.js';
+
+const resolvedThenable = <T,>(value: T): Promise<T> =>
+  Object.assign(Promise.resolve(value), {
+    status: 'fulfilled' as const,
+    value,
+  });
+
+const renderApp = async (element: ReactElement) => {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(element);
+  });
+  return {
+    unmount: () => {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    },
+  };
+};
+
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+afterAll(() => {
+  delete (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT;
+});
+
+describe('useInitialRoute', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('uses element meta when the ROUTE_ID path differs from the fallback', async () => {
+    window.history.replaceState({}, '', '/start#kept');
+    const capture: { initialRoute?: unknown; routeFallback?: unknown } = {};
+    const Probe = () => {
+      const result = useInitialRoute({
+        path: '/start',
+        query: 'a=1',
+        hash: '#kept',
+      });
+      capture.initialRoute = result.initialRoute;
+      capture.routeFallback = result.routeFallback;
+      return null;
+    };
+
+    const view = await renderApp(
+      <INTERNAL_ServerRoot
+        elementsPromise={resolvedThenable({
+          [ROUTE_ID]: ['/about', 'q=2'],
+        })}
+      >
+        <Probe />
+      </INTERNAL_ServerRoot>,
+    );
+
+    expect(capture.initialRoute).toEqual({
+      path: '/about',
+      query: 'q=2',
+      hash: '',
+    });
+    expect(capture.routeFallback).toEqual({
+      path: '/about',
+      query: 'q=2',
+      hash: '#kept',
+    });
+    view.unmount();
+  });
+
+  test('uses the fallback when ROUTE_ID is absent', async () => {
+    window.history.replaceState({}, '', '/start');
+    const fallback = { path: '/start', query: 'a=1', hash: '#h' };
+    const capture: { initialRoute?: unknown; routeFallback?: unknown } = {};
+    const Probe = () => {
+      const result = useInitialRoute(fallback);
+      capture.initialRoute = result.initialRoute;
+      capture.routeFallback = result.routeFallback;
+      return null;
+    };
+
+    const view = await renderApp(
+      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
+        <Probe />
+      </INTERNAL_ServerRoot>,
+    );
+
+    expect(capture.initialRoute).toEqual({
+      path: '/start',
+      query: 'a=1',
+      hash: '',
+    });
+    expect(capture.routeFallback).toEqual({
+      path: '/start',
+      query: 'a=1',
+      hash: '#h',
+    });
+    view.unmount();
+  });
+
+  test('restores the address-bar hash after mount', async () => {
+    window.history.replaceState({}, '', '/start#from-bar');
+    const capture: { routeFallback?: { hash: string } } = {};
+    const Probe = () => {
+      capture.routeFallback = useInitialRoute({
+        path: '/start',
+        query: '',
+        hash: '#from-fallback',
+      }).routeFallback;
+      return null;
+    };
+
+    const view = await renderApp(
+      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
+        <Probe />
+      </INTERNAL_ServerRoot>,
+    );
+
+    expect(capture.routeFallback?.hash).toBe('#from-bar');
+    view.unmount();
+  });
+});
+
+describe('useHmrRefetch', () => {
+  const stubHot = () => {
+    Object.defineProperty(import.meta, 'hot', {
+      configurable: true,
+      value: {},
+    });
+  };
+
+  beforeEach(() => {
+    clearCaches();
+    clearRegisteredLazySlices();
+    stubHot();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(import.meta, 'hot');
+    vi.restoreAllMocks();
+    clearCaches();
+    clearRegisteredLazySlices();
+    globalThis.__WAKU_RSC_RELOAD_LISTENERS__ = [];
+  });
+
+  test('clears caches then refetches the settled route and lazy slices', async () => {
+    const order: string[] = [];
+    const onBeforeRefetch = vi.fn(() => {
+      order.push('before');
+    });
+    vi.spyOn(caches, 'clearCaches').mockImplementation(() => {
+      order.push('clear');
+    });
+    vi.spyOn(minimalClient, 'unstable_fetchRsc').mockImplementation(
+      async () => {
+        order.push('refetch');
+        return {};
+      },
+    );
+    const fetchSlice = vi.spyOn(slice, 'fetchSlice').mockImplementation(() => {
+      order.push('slice');
+    });
+    registerLazySlice('slice-a');
+    registerLazySlice('slice-b');
+
+    const Probe = () => {
+      useHmrRefetch({
+        getSettledRoute: () => ({ path: '/hot', query: 'q=1', hash: '' }),
+        onBeforeRefetch,
+      });
+      return null;
+    };
+
+    const view = await renderApp(
+      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
+        <Probe />
+      </INTERNAL_ServerRoot>,
+    );
+
+    const reload = globalThis.__WAKU_RSC_RELOAD_LISTENERS__?.at(-1);
+    expect(reload).toBeTypeOf('function');
+    await act(async () => {
+      reload!();
+    });
+
+    expect(order.slice(0, 2)).toEqual(['before', 'clear']);
+    expect(order).toContain('refetch');
+    expect(order).toContain('slice');
+    expect(order.indexOf('clear')).toBeLessThan(order.indexOf('refetch'));
+    expect(minimalClient.unstable_fetchRsc).toHaveBeenCalledWith(
+      encodeRoutePath('/hot'),
+      caches.createRscParams('q=1'),
+    );
+    expect(fetchSlice).toHaveBeenCalledWith('slice-a', expect.any(Function), {
+      replace: true,
+    });
+    expect(fetchSlice).toHaveBeenCalledWith('slice-b', expect.any(Function), {
+      replace: true,
+    });
+
+    view.unmount();
+  });
+});

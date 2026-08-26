@@ -39,9 +39,7 @@ import {
 } from '../minimal/client.js';
 import {
   type PrefetchOptions,
-  clearCaches,
   createRscParams,
-  forEachRegisteredLazySlice,
   getPrefetch,
   getPrefetchedElements,
   hasCachedShell,
@@ -50,7 +48,6 @@ import {
   prefetchRoute as prefetchCachedRoute,
 } from './client-utils/caches.js';
 import {
-  getRouteFromElements,
   has404FromElements,
   isStaticFromElements,
 } from './client-utils/element-meta.js';
@@ -65,6 +62,10 @@ import {
 } from './client-utils/load.js';
 import type { LoadOutcome } from './client-utils/load.js';
 import { buildMergePatch } from './client-utils/merge-patch.js';
+import {
+  useHmrRefetch,
+  useInitialRoute,
+} from './client-utils/route-state-hooks.js';
 import {
   getRouteUrl,
   isSameRoute,
@@ -85,7 +86,6 @@ import {
   shouldScrollByDefault,
   shouldScrollForRouteChange,
 } from './client-utils/scroll.js';
-import { fetchSlice } from './client-utils/slice.js';
 import type { SliceId } from './client-utils/slice.js';
 import type {
   RouteParams,
@@ -1075,14 +1075,7 @@ const InnerRouter = ({
 }) => {
   const elementsPromise = useElementsPromise();
   const elements = use(elementsPromise);
-  const routeFromElements = getRouteFromElements(elements);
-  const resolvedRoute =
-    routeFromElements && routeFromElements.path !== fallbackRoute.path
-      ? { ...routeFromElements, hash: fallbackRoute.hash }
-      : fallbackRoute;
-  const initialHashRef = useRef(resolvedRoute.hash);
-  // state, not a ref: it is read during render
-  const [initialRoute] = useState(() => ({ ...resolvedRoute, hash: '' }));
+  const { initialRoute, routeFallback } = useInitialRoute(fallbackRoute);
 
   const has404 = has404FromElements(elements);
   const initialElementsRef = useRef(elements);
@@ -1100,14 +1093,9 @@ const InnerRouter = ({
     controller: AbortController;
     queuedState?: RouterState;
   } | null>(null);
-  // starts empty so hydration matches the server, then the effect fills it
-  const [restoredHash, setRestoredHash] = useState('');
   const [navigationError, setNavigationError] = useState<{
     error: unknown;
   }>();
-  useEffect(() => {
-    setRestoredHash(window.location.hash || initialHashRef.current);
-  }, []);
   useEffect(() => {
     if (import.meta.hot) {
       // The listener below owns the current route, not Root's initial path.
@@ -1115,10 +1103,6 @@ const InnerRouter = ({
     }
   }, []);
 
-  const routeFallback = useMemo(
-    () => ({ ...initialRoute, hash: restoredHash }),
-    [initialRoute, restoredHash],
-  );
   const routerState = getRouterState(elements);
   const destination = useMemo(
     () =>
@@ -1169,29 +1153,14 @@ const InnerRouter = ({
     pendingNavigationRef.current = null;
   }, [mergeElements]);
 
-  useEffect(() => {
-    if (import.meta.hot) {
-      const refetchRouteOnHmr = () => {
-        cancelPendingNavigation();
-        clearCaches();
-        const settledRoute = getSettledRoute(
-          resolvedElementsRef.current,
-          routeFallback,
-        );
-        startTransition(() => {
-          // the reload clears the set, so the response has to teach it again
-          void refetch(
-            encodeRoutePath(settledRoute.path),
-            createRscParams(settledRoute.query),
-          ).then(learnStaticFromElements, () => {});
-          forEachRegisteredLazySlice((id) => {
-            fetchSlice(id, mergeElements, { replace: true });
-          });
-        });
-      };
-      return registerRscReloadListener(refetchRouteOnHmr);
-    }
-  }, [refetch, routeFallback, cancelPendingNavigation, mergeElements]);
+  const readSettledRoute = useCallback(
+    () => getSettledRoute(resolvedElementsRef.current, routeFallback),
+    [routeFallback],
+  );
+  useHmrRefetch({
+    getSettledRoute: readSettledRoute,
+    onBeforeRefetch: cancelPendingNavigation,
+  });
 
   const changeRoute: ChangeRoute = useCallback(
     async function changeRoute(nextRoute, options) {
