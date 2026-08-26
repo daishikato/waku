@@ -27,6 +27,7 @@ import {
   unstable_fetchRsc as fetchRsc,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
+import { clearCaches } from '../src/router/client-utils/caches.js';
 import { PREFETCH_LIMIT } from '../src/router/client-utils/prefetch-cache.js';
 import {
   ErrorBoundary,
@@ -580,6 +581,7 @@ beforeEach(() => {
   // shell so prefetchRoute's cache wiring has a promise to track.
   prefetchRsc.mockReturnValue(resolvedThenable({}));
   vi.mocked(Root).mockClear();
+  clearCaches();
 
   const IntersectionObserverMock = vi.fn(function (
     callback: IntersectionObserverCallback,
