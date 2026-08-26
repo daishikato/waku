@@ -19,6 +19,8 @@ import {
   getRouteFromElements,
   isStaticFromElements,
 } from './router-state.js';
+// meta / canCommitInstantly live here; RouterState stays with the history
+// binding when this file splits
 
 type Elements = Record<string | symbol, unknown>;
 
