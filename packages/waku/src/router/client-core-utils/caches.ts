@@ -1,9 +1,8 @@
-// Layer-1 router caches as module state: prefetch manager, static-path set,
-// and the rscParams identity map. Bindings read through capabilities
-// (hasCachedShell, getPrefetchedElements) and never hold the stores.
-// createCaches() is the test factory; production uses the module singleton.
-// The lazy-slice id set lives here so HMR can refetch after clearCaches();
-// it is not one of the cleared stores.
+// Router caches as module state: prefetch manager, static-path set, and the
+// rscParams identity map. Bindings read through capabilities (hasCachedShell,
+// getPrefetchedElements) and never hold the stores. The lazy-slice id set
+// lives here so HMR can refetch after clearCaches(); it is not one of the
+// cleared stores.
 
 import { unstable_fetchRsc as fetchRsc } from '../../minimal/client.js';
 import {
@@ -87,7 +86,6 @@ export const createCaches = () => {
         getPrefetchedElements(route),
       ),
     getPrefetchedElements,
-    // until the loader extract
     getPrefetch: (route: RouteProps): PrefetchHandle | undefined =>
       manager.get(encodeRoutePath(route.path), route.query),
     hasStaticPath: (path: string): boolean => staticPathSet.has(path),

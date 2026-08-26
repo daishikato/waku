@@ -6,8 +6,8 @@ import {
   getRouteFromElements,
   isMetaKey,
   isStaticFromElements,
-} from '../core-utils/element-meta.js';
-import { getRouteUrl } from '../core-utils/route-url.js';
+} from '../client-core-utils/element-meta.js';
+import { getRouteUrl } from '../client-core-utils/route-url.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
 
 // the client owned router state; the server's ROUTE_ID owns the path

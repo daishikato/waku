@@ -38,15 +38,6 @@ import {
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../minimal/client.js';
 import {
-  ROUTER_STATE_ID,
-  getRouterState,
-  getSettledRoute,
-  makeRouterState,
-  pinForSwr,
-  resolveServerRedirect,
-} from './client-utils/router-state.js';
-import type { RouterState } from './client-utils/router-state.js';
-import {
   type PrefetchOptions,
   createRscParams,
   getPrefetch,
@@ -55,37 +46,46 @@ import {
   hasStaticPath,
   learnStaticFromElements,
   prefetchRoute as prefetchCachedRoute,
-} from './core-utils/caches.js';
+} from './client-core-utils/caches.js';
 import {
   has404FromElements,
   isStaticFromElements,
-} from './core-utils/element-meta.js';
-import { decideFollow, isFollowable } from './core-utils/error-route.js';
-import { RouterHostContext } from './core-utils/host.js';
-import type { RouterHost } from './core-utils/host.js';
+} from './client-core-utils/element-meta.js';
+import { decideFollow, isFollowable } from './client-core-utils/error-route.js';
+import { RouterHostContext } from './client-core-utils/host.js';
+import type { RouterHost } from './client-core-utils/host.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   abortable,
   load,
-} from './core-utils/load.js';
-import { buildMergePatch } from './core-utils/merge-patch.js';
-import { useResolveSearchCodec } from './core-utils/route-hooks.js';
+} from './client-core-utils/load.js';
+import { buildMergePatch } from './client-core-utils/merge-patch.js';
+import { useResolveSearchCodec } from './client-core-utils/route-hooks.js';
 import {
   useHmrRefetch,
   useInitialRoute,
-} from './core-utils/route-state-hooks.js';
+} from './client-core-utils/route-state-hooks.js';
 import {
   getRouteUrl,
   isSameRoute,
   isSameRscRoute,
   parseRoute,
-} from './core-utils/route-url.js';
+} from './client-core-utils/route-url.js';
 import {
   scrollToHash,
   shouldScrollByDefault,
   shouldScrollForRouteChange,
-} from './core-utils/scroll.js';
-import type { SliceId } from './core-utils/slice.js';
+} from './client-core-utils/scroll.js';
+import type { SliceId } from './client-core-utils/slice.js';
+import {
+  ROUTER_STATE_ID,
+  getRouterState,
+  getSettledRoute,
+  makeRouterState,
+  pinForSwr,
+  resolveServerRedirect,
+} from './client-utils/router-state.js';
+import type { RouterState } from './client-utils/router-state.js';
 import type {
   RouteParams,
   RouteSearch,
@@ -389,7 +389,7 @@ export {
   useParams_UNSTABLE,
   useSearch_UNSTABLE,
   useSetSearch_UNSTABLE,
-} from './core-utils/route-hooks.js';
+} from './client-core-utils/route-hooks.js';
 
 // HACK: commit-phase .current write; extracted so react-hooks/immutability ignores it.
 const assignRef = <T,>(ref: RefObject<T | null>, node: T | null): void => {
@@ -792,8 +792,8 @@ const preloadRouteModules = (path: string) => {
   });
 };
 
-export { ErrorBoundary } from './core-utils/error-boundary.js';
-export { Slice } from './core-utils/slice.js';
+export { ErrorBoundary } from './client-core-utils/error-boundary.js';
+export { Slice } from './client-core-utils/slice.js';
 
 const InnerRouter = ({
   fallbackRoute,
@@ -1055,8 +1055,8 @@ const InnerRouter = ({
       if (outcome.type === 'aborted') {
         return;
       }
-      // paint already pushed; a follow must replace. Intermediate follow URLs
-      // are no longer written during the loop (the loader is history-free).
+      // paint already pushed; a follow must replace. The loader is
+      // history-free; this commit replaces the painted entry.
       const historyIntent =
         painted && outcome.follows > initialFollows && options.history !== null
           ? 'replace'
@@ -1326,23 +1326,23 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
 }
 
 // Grab-bag kept so existing imports compile. L1 symbols belong on
-// `waku/router/core`; removal is a later maintainer decision.
+// `waku/router/client-core`; removal is a later maintainer decision.
 
-/** @deprecated Import `Unstable_RouteProps` from `waku/router/core`. */
+/** @deprecated Import `Unstable_RouteProps` from `waku/router/client-core`. */
 export type Unstable_RouteProps = RouteProps;
-/** @deprecated Import `unstable_HAS404_ID` from `waku/router/core`. */
+/** @deprecated Import `unstable_HAS404_ID` from `waku/router/client-core`. */
 export const unstable_HAS404_ID = HAS404_ID;
-/** @deprecated Import `unstable_IS_STATIC_ID` from `waku/router/core`. */
+/** @deprecated Import `unstable_IS_STATIC_ID` from `waku/router/client-core`. */
 export const unstable_IS_STATIC_ID = IS_STATIC_ID;
-/** @deprecated Import `unstable_ROUTE_ID` from `waku/router/core`. */
+/** @deprecated Import `unstable_ROUTE_ID` from `waku/router/client-core`. */
 export const unstable_ROUTE_ID = ROUTE_ID;
-/** @deprecated Import `unstable_encodeRoutePath` from `waku/router/core`. */
+/** @deprecated Import `unstable_encodeRoutePath` from `waku/router/client-core`. */
 export const unstable_encodeRoutePath = encodeRoutePath;
-/** @deprecated Import `unstable_encodeSliceId` from `waku/router/core`. */
+/** @deprecated Import `unstable_encodeSliceId` from `waku/router/client-core`. */
 export const unstable_encodeSliceId = encodeSliceId;
-/** @deprecated Import `unstable_getRouteSlotId` from `waku/router/core`. */
+/** @deprecated Import `unstable_getRouteSlotId` from `waku/router/client-core`. */
 export const unstable_getRouteSlotId = getRouteSlotId;
-/** @deprecated Import `unstable_getSliceSlotId` from `waku/router/core`. */
+/** @deprecated Import `unstable_getSliceSlotId` from `waku/router/client-core`. */
 export const unstable_getSliceSlotId = getSliceSlotId;
 /** @deprecated Import `unstable_getErrorInfo` from `waku/minimal/client`. */
 export const unstable_getErrorInfo = getErrorInfo;
@@ -1350,32 +1350,32 @@ export const unstable_getErrorInfo = getErrorInfo;
 export const unstable_addBase = addBase;
 /** @deprecated Import `unstable_removeBase` from `waku/minimal/client`. */
 export const unstable_removeBase = removeBase;
-/** @deprecated History-binding private; not on `waku/router/core`. */
+/** @deprecated History-binding private; not on `waku/router/client-core`. */
 export const unstable_RouterContext = RouterContext;
-/** @deprecated History-binding private; not on `waku/router/core`. */
+/** @deprecated History-binding private; not on `waku/router/client-core`. */
 export type Unstable_ChangeRoute = ChangeRoute;
-/** @deprecated Import `unstable_prefetchRoute` from `waku/router/core`. */
+/** @deprecated Import `unstable_prefetchRoute` from `waku/router/client-core`. */
 export type Unstable_PrefetchRoute = PrefetchRoute;
-/** @deprecated Import `Unstable_PrefetchOptions` from `waku/router/core`. */
+/** @deprecated Import `Unstable_PrefetchOptions` from `waku/router/client-core`. */
 export type Unstable_PrefetchOptions = PrefetchOptions;
-/** @deprecated Import `Unstable_SliceId` from `waku/router/core`. */
+/** @deprecated Import `Unstable_SliceId` from `waku/router/client-core`. */
 export type Unstable_SliceId = SliceId;
-/** @deprecated Import `Unstable_RouteHref` from `waku/router/core`. */
+/** @deprecated Import `Unstable_RouteHref` from `waku/router/client-core`. */
 export type Unstable_RouteHref = RouteHref;
-/** @deprecated Import `Unstable_RoutePath` from `waku/router/core`. */
+/** @deprecated Import `Unstable_RoutePath` from `waku/router/client-core`. */
 export type Unstable_RoutePath = RoutePath;
-/** @deprecated Import `Unstable_BuildRouteHrefTarget` from `waku/router/core`. */
+/** @deprecated Import `Unstable_BuildRouteHrefTarget` from `waku/router/client-core`. */
 export type Unstable_BuildRouteHrefTarget<Path extends RoutePath> =
   BuildRouteHrefTarget<Path>;
-/** @deprecated Import `Unstable_RouteParams` from `waku/router/core`. */
+/** @deprecated Import `Unstable_RouteParams` from `waku/router/client-core`. */
 export type Unstable_RouteParams<Path extends RoutePath> = RouteParams<Path>;
-/** @deprecated Import `Unstable_RouteSearch` from `waku/router/core`. */
+/** @deprecated Import `Unstable_RouteSearch` from `waku/router/client-core`. */
 export type Unstable_RouteSearch<Path extends RoutePath> = RouteSearch<Path>;
-/** @deprecated Import `unstable_buildRouteHref` from `waku/router/core`. */
+/** @deprecated Import `unstable_buildRouteHref` from `waku/router/client-core`. */
 export const unstable_buildRouteHref = buildRouteHref;
-/** @deprecated Import `unstable_matchRouteParams` from `waku/router/core`. */
+/** @deprecated Import `unstable_matchRouteParams` from `waku/router/client-core`. */
 export const unstable_matchRouteParams = matchRouteParams;
-/** @deprecated Import `unstable_useResolveSearchCodec` from `waku/router/core`. */
+/** @deprecated Import `useResolveSearchCodec_UNSTABLE` from `waku/router/client-core`. */
 export const unstable_useResolveSearchCodec = useResolveSearchCodec;
-/** @deprecated Import `unstable_parseRoute` from `waku/router/core`. */
+/** @deprecated Import `unstable_parseRoute` from `waku/router/client-core`. */
 export const unstable_parseRoute = parseRoute;

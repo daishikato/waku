@@ -30,8 +30,8 @@ import {
   unstable_load as load,
   unstable_parseRoute as parseRoute,
   unstable_prefetchRoute as prefetchRoute,
-  unstable_useInitialRoute as useInitialRoute,
-} from 'waku/router/core';
+  useInitialRoute_UNSTABLE as useInitialRoute,
+} from 'waku/router/client-core';
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   const elements = use(useElementsPromise());

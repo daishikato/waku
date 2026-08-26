@@ -4,8 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
+import * as clientCore from '../src/router/client-core.js';
 import * as client from '../src/router/client.js';
-import * as core from '../src/router/core.js';
 
 const routerSrc = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -17,16 +17,16 @@ const runtimeExportNames = (ns: object): string[] =>
     .filter((key): key is string => typeof key === 'string')
     .sort();
 
-describe('waku/router/core surface', () => {
+describe('waku/router/client-core surface', () => {
   test('runtime export names are the frozen L1 surface', () => {
-    expect(runtimeExportNames(core)).toEqual([
-      'unstable_ErrorBoundary',
+    expect(runtimeExportNames(clientCore)).toEqual([
+      'ErrorBoundary_UNSTABLE',
+      'SearchCodecsProvider_UNSTABLE',
+      'Slice_UNSTABLE',
       'unstable_HAS404_ID',
       'unstable_IS_STATIC_ID',
       'unstable_ROUTE_ID',
       'unstable_RouterHostContext',
-      'unstable_SearchCodecsProvider',
-      'unstable_Slice',
       'unstable_buildMergePatch',
       'unstable_buildRouteHref',
       'unstable_clearCaches',
@@ -59,24 +59,30 @@ describe('waku/router/core surface', () => {
       'unstable_pathnameToRoutePath',
       'unstable_prefetchRoute',
       'unstable_registerLazySlice',
-      'unstable_useHmrRefetch',
-      'unstable_useInitialRoute',
-      'unstable_useParams',
-      'unstable_useResolveSearchCodec',
-      'unstable_useRouterHost',
-      'unstable_useSearch',
-      'unstable_useSetSearch',
+      'useHmrRefetch_UNSTABLE',
+      'useInitialRoute_UNSTABLE',
+      'useParams_UNSTABLE',
+      'useResolveSearchCodec_UNSTABLE',
+      'useRouterHost_UNSTABLE',
+      'useSearch_UNSTABLE',
+      'useSetSearch_UNSTABLE',
     ]);
   });
 
-  test('every runtime export carries the unstable_ prefix', () => {
-    for (const name of runtimeExportNames(core)) {
-      expect(name.startsWith('unstable_')).toBe(true);
+  test('unstable markers follow CONTRIBUTING.md', () => {
+    const suffix = '_UNSTABLE';
+    for (const name of runtimeExportNames(clientCore)) {
+      if (name.endsWith(suffix)) {
+        const base = name.slice(0, -suffix.length);
+        expect(base.startsWith('use') || /^[A-Z]/.test(base), name).toBe(true);
+      } else {
+        expect(name.startsWith('unstable_'), name).toBe(true);
+      }
     }
   });
 
   test('does not export binding-private names', () => {
-    const names = new Set(runtimeExportNames(core));
+    const names = new Set(runtimeExportNames(clientCore));
     expect(names.has('unstable_RouterContext')).toBe(false);
     expect(names.has('Router')).toBe(false);
     expect(names.has('Link')).toBe(false);
@@ -85,8 +91,8 @@ describe('waku/router/core surface', () => {
     expect(names.has('unstable_changeRoute')).toBe(false);
   });
 
-  test('core.ts does not import the history binding or router-state', () => {
-    const src = readFileSync(join(routerSrc, 'core.ts'), 'utf8');
+  test('client-core.ts does not import the history binding or router-state', () => {
+    const src = readFileSync(join(routerSrc, 'client-core.ts'), 'utf8');
     const specs = [...src.matchAll(/from ['"]([^'"]+)['"]/g)].map(
       (match) => match[1]!,
     );
@@ -98,7 +104,7 @@ describe('waku/router/core surface', () => {
 });
 
 describe('waku/router/client surface', () => {
-  test('runtime export names stay the pre-core app-facing set', () => {
+  test('runtime export names stay the app-facing set', () => {
     expect(runtimeExportNames(client)).toEqual([
       'ErrorBoundary',
       'INTERNAL_ServerRouter',
@@ -129,16 +135,18 @@ describe('waku/router/client surface', () => {
     ]);
   });
 
-  test('core aliases the same module instances as client', () => {
-    expect(core.unstable_Slice).toBe(client.Slice);
-    expect(core.unstable_ErrorBoundary).toBe(client.ErrorBoundary);
-    expect(core.unstable_useParams).toBe(client.useParams_UNSTABLE);
-    expect(core.unstable_SearchCodecsProvider).toBe(
+  test('client-core aliases the same module instances as client', () => {
+    expect(clientCore.Slice_UNSTABLE).toBe(client.Slice);
+    expect(clientCore.ErrorBoundary_UNSTABLE).toBe(client.ErrorBoundary);
+    expect(clientCore.useParams_UNSTABLE).toBe(client.useParams_UNSTABLE);
+    expect(clientCore.SearchCodecsProvider_UNSTABLE).toBe(
       client.Unstable_SearchCodecsProvider,
     );
-    expect(core.unstable_parseRoute).toBe(client.unstable_parseRoute);
-    expect(core.unstable_HAS404_ID).toBe(client.unstable_HAS404_ID);
-    expect(core.unstable_encodeRoutePath).toBe(client.unstable_encodeRoutePath);
+    expect(clientCore.unstable_parseRoute).toBe(client.unstable_parseRoute);
+    expect(clientCore.unstable_HAS404_ID).toBe(client.unstable_HAS404_ID);
+    expect(clientCore.unstable_encodeRoutePath).toBe(
+      client.unstable_encodeRoutePath,
+    );
   });
 });
 
@@ -149,8 +157,8 @@ describe('folder membership is layer membership', () => {
     ]);
   });
 
-  test('core-utils holds the L1 modules', () => {
-    expect(readdirSync(join(routerSrc, 'core-utils')).sort()).toEqual([
+  test('client-core-utils holds the L1 modules', () => {
+    expect(readdirSync(join(routerSrc, 'client-core-utils')).sort()).toEqual([
       'caches.ts',
       'element-meta.ts',
       'error-boundary.tsx',

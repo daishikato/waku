@@ -1,5 +1,5 @@
-// Initial-route resolution and HMR refetch. Engine-agnostic: they read
-// element meta / window.location.hash and the cache module, not history.
+// Engine-agnostic: they read element meta / window.location.hash and the
+// cache module, not history.
 
 import {
   startTransition,

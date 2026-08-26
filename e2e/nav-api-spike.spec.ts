@@ -8,7 +8,7 @@ const startApp = prepareNormalSetup('nav-api-spike');
 const ALLOWED_IMPORT_PREFIXES = [
   'react',
   'waku/minimal/client',
-  'waku/router/core',
+  'waku/router/client-core',
 ];
 
 test.describe('nav-api-spike imports', () => {
@@ -17,7 +17,9 @@ test.describe('nav-api-spike imports', () => {
       new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
     );
     const src = readFileSync(bindingPath, 'utf8');
-    expect(src).not.toMatch(/client\.tsx|router-state|client-utils|core-utils/);
+    expect(src).not.toMatch(
+      /client\.tsx|router-state|client-utils|client-core-utils/,
+    );
     const specs = [...src.matchAll(/from ['"]([^'"]+)['"]/g)].map(
       (match) => match[1]!,
     );

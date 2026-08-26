@@ -133,7 +133,7 @@ export function environmentsPlugin(config: Required<Config>): Plugin {
             PKG_NAME,
             'waku/minimal/client',
             'waku/router/client',
-            'waku/router/core',
+            'waku/router/client-core',
           ],
         },
       };
