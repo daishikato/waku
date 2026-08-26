@@ -11,9 +11,9 @@ import {
   getRouteSlotId,
 } from '../isomorphic-utils/route-path.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
+import { getRouteFromElements } from './element-meta.js';
 import type { Loaded } from './load.js';
 import { isSameRscRoute } from './route-url.js';
-import { getRouteFromElements } from './router-state.js';
 
 type Elements = Record<string | symbol, unknown>;
 

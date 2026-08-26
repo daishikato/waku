@@ -49,6 +49,11 @@ import {
   learnStaticFromElements,
   prefetchRoute as prefetchCachedRoute,
 } from './client-utils/caches.js';
+import {
+  getRouteFromElements,
+  has404FromElements,
+  isStaticFromElements,
+} from './client-utils/element-meta.js';
 import { decideFollow, isFollowable } from './client-utils/error-route.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
@@ -66,11 +71,8 @@ import {
 } from './client-utils/route-url.js';
 import {
   ROUTER_STATE_ID,
-  getRouteFromElements,
   getRouterState,
   getSettledRoute,
-  has404FromElements,
-  isStaticFromElements,
   makeRouterState,
   pinForSwr,
   resolveServerRedirect,
@@ -81,6 +83,13 @@ import {
   shouldScrollByDefault,
   shouldScrollForRouteChange,
 } from './client-utils/scroll.js';
+import {
+  finishSliceFetch,
+  forEachRegisteredLazySlice,
+  isCurrentSliceFetch,
+  registerLazySlice,
+  startSliceFetch,
+} from './client-utils/slices.js';
 import type {
   RouteParams,
   RouteSearch,
@@ -327,14 +336,27 @@ type PrefetchRoute = (route: RouteProps, options?: PrefetchOptions) => void;
 
 type SliceId = string;
 
-const RouterContext = createContext<{
+type HostNavigate = (
+  href: string,
+  opts: { history: 'push' | 'replace'; scroll?: boolean },
+) => Promise<void>;
+
+// Prefetch, slices, and codecs are module concerns; instant / RouterState
+// / changeRoute stay on the history binding.
+type RouterHost = {
   route: RouteProps;
+  navigate: HostNavigate;
+};
+
+const RouterContext = createContext<RouterHost | null>(null);
+
+// History binding only; not exported.
+type HistoryRouter = {
   routerState?: RouterState | undefined;
   changeRoute: ChangeRoute;
-  prefetchRoute: PrefetchRoute;
-  fetchingSlices: Map<SliceId, Promise<Elements>>;
-  lazySliceIds: Set<SliceId>;
-} | null>(null);
+};
+
+const HistoryRouterContext = createContext<HistoryRouter | null>(null);
 
 const SearchCodecsContext = createContext<ReadonlyMap<string, AnyCodec>>(
   new Map(),
@@ -386,12 +408,25 @@ const dispatchChangeRoute = (
   });
 };
 
-const useRouterOrThrow = () => {
-  const router = useContext(RouterContext);
-  if (!router) {
+const useHostOrThrow = (): RouterHost => {
+  const host = useContext(RouterContext);
+  if (!host) {
     throw new Error('Missing Router');
   }
-  return router;
+  return host;
+};
+
+const useHistoryBindingOrThrow = (): HistoryRouter => {
+  const binding = useContext(HistoryRouterContext);
+  if (!binding) {
+    throw new Error('Missing Router');
+  }
+  return binding;
+};
+
+const prefetchRoute: PrefetchRoute = (route, options) => {
+  preloadRouteModules(route.path);
+  prefetchCachedRoute(route, options);
 };
 
 const resolveRouteHref = <Path extends RoutePath>(
@@ -413,8 +448,8 @@ const resolveRouteHref = <Path extends RoutePath>(
  * prefetching is automatic and skips the route already on screen.
  */
 export function useRouter() {
-  const router = useRouterOrThrow();
-  const { route, changeRoute, prefetchRoute } = router;
+  const { route, navigate: hostNavigate } = useHostOrThrow();
+  const binding = useContext(HistoryRouterContext);
   const resolveCodec = useResolveSearchCodec();
   const navigate = useCallback(
     (
@@ -422,18 +457,22 @@ export function useRouter() {
       to: RouteHref | BuildRouteHrefTarget<RoutePath>,
       options?: NavigateOptions,
     ) => {
-      const url = new URL(
-        resolveRouteHref(to, resolveCodec),
-        window.location.href,
-      );
-      return dispatchChangeRoute(changeRoute, parseRoute(url), {
-        shouldScroll: options?.scroll ?? shouldScrollByDefault(url),
+      const href = resolveRouteHref(to, resolveCodec);
+      if (options?.unstable_instant && binding) {
+        const url = new URL(href, window.location.href);
+        return dispatchChangeRoute(binding.changeRoute, parseRoute(url), {
+          shouldScroll: options.scroll ?? shouldScrollByDefault(url),
+          history,
+          url,
+          instant: true,
+        });
+      }
+      return hostNavigate(href, {
         history,
-        url,
-        instant: options?.unstable_instant,
+        ...(options?.scroll !== undefined ? { scroll: options.scroll } : {}),
       });
     },
-    [changeRoute, resolveCodec],
+    [binding, hostNavigate, resolveCodec],
   );
   const push = useCallback(
     (
@@ -451,13 +490,20 @@ export function useRouter() {
   ) as Navigate;
   const reload = useCallback(async () => {
     const url = new URL(window.location.href);
-    await dispatchChangeRoute(changeRoute, parseRoute(url), {
-      shouldScroll: true,
-      refetch: true,
+    if (binding) {
+      await dispatchChangeRoute(binding.changeRoute, parseRoute(url), {
+        shouldScroll: true,
+        refetch: true,
+        history: 'replace',
+        url, // reloading moves nothing
+      });
+      return;
+    }
+    await hostNavigate(url.pathname + url.search + url.hash, {
       history: 'replace',
-      url, // reloading moves nothing
+      scroll: true,
     });
-  }, [changeRoute]);
+  }, [binding, hostNavigate]);
   const back = useCallback(() => {
     window.history.back();
   }, []);
@@ -475,7 +521,7 @@ export function useRouter() {
       );
       prefetchRoute(parseRoute(url), options);
     },
-    [prefetchRoute, resolveCodec],
+    [resolveCodec],
   ) as Prefetch;
   return {
     ...route,
@@ -500,7 +546,7 @@ export function useParams_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): RouteParams<Path> | null {
-  const { path } = useRouter();
+  const { path } = useHostOrThrow().route;
   return useMemo(() => matchRouteParams(from, path), [from, path]);
 }
 
@@ -554,7 +600,7 @@ export function useSearch_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): RouteSearch<Path> | null {
-  const { path, query } = useRouter();
+  const { path, query } = useHostOrThrow().route;
   const codecs = useContext(SearchCodecsContext);
   return useMemo(() => {
     if (matchRouteParams(from, path) === null) {
@@ -585,8 +631,7 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): SetSearch<Path> {
-  const router = useRouterOrThrow();
-  const { route, changeRoute } = router;
+  const { route, navigate } = useHostOrThrow();
   const codecs = useContext(SearchCodecsContext);
   return useCallback<SetSearch<Path>>(
     async (update, options) => {
@@ -603,13 +648,12 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
       const nextQuery = codec.serialize({ ...prev, ...partial });
       const url = new URL(window.location.href);
       url.search = nextQuery;
-      await dispatchChangeRoute(changeRoute, parseRoute(url), {
-        shouldScroll: options?.scroll ?? false,
+      await navigate(url.pathname + url.search + url.hash, {
         history: options?.history ?? 'push',
-        url,
+        scroll: options?.scroll ?? false,
       });
     },
-    [from, route.path, route.query, codecs, changeRoute],
+    [from, route.path, route.query, codecs, navigate],
   );
 }
 
@@ -654,22 +698,22 @@ function useSharedRef<T>(
 }
 
 const prefetchIfNotCurrent = (
-  router: { route: RouteProps; prefetchRoute: PrefetchRoute } | null,
+  current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
 ) => {
-  if (!router) {
+  if (!current) {
     return;
   }
   const route = parseRoute(new URL(resolvedTo, window.location.href));
-  if (!isSameRscRoute(route, router.route)) {
-    router.prefetchRoute(route, options);
+  if (!isSameRscRoute(route, current)) {
+    prefetchRoute(route, options);
   }
 };
 
 const usePrefetchOnView = (
   ref: RefObject<HTMLAnchorElement | null>,
-  router: { route: RouteProps; prefetchRoute: PrefetchRoute } | null,
+  current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
 ) => {
@@ -684,7 +728,7 @@ const usePrefetchOnView = (
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            prefetchIfNotCurrent(router, resolvedTo, {
+            prefetchIfNotCurrent(current, resolvedTo, {
               ...(mode ? { mode } : {}),
               ...(ttl !== undefined ? { ttl } : {}),
             });
@@ -697,7 +741,7 @@ const usePrefetchOnView = (
     return () => {
       observer.disconnect();
     };
-  }, [enabled, mode, ttl, router, resolvedTo, ref]);
+  }, [enabled, mode, ttl, current, resolvedTo, ref]);
 };
 
 type NavigationStatus = { pending?: boolean };
@@ -760,34 +804,43 @@ export function Link<Path extends RoutePath>({
 }: LinkProps<Path>): ReactElement {
   const resolveCodec = useResolveSearchCodec();
   const resolvedTo = resolveRouteHref(to, resolveCodec);
-  const router = useContext(RouterContext);
-  const changeRoute = router
-    ? router.changeRoute
-    : () => {
-        throw new Error('Missing Router');
-      };
+  const host = useContext(RouterContext);
+  const binding = useContext(HistoryRouterContext);
   const [isPending, startTransition] = useTransition();
   const [ref, setRef] = useSharedRef<HTMLAnchorElement>(refProp);
 
-  usePrefetchOnView(ref, router, resolvedTo, unstable_prefetchOnView);
+  usePrefetchOnView(ref, host?.route, resolvedTo, unstable_prefetchOnView);
   const internalOnClick = () => {
     const url = new URL(resolvedTo, window.location.href);
     if (url.href !== window.location.href) {
       const route = parseRoute(url);
       preloadRouteModules(route.path);
-      dispatchChangeRoute(
-        changeRoute,
-        route,
-        {
-          shouldScroll: scroll ?? shouldScrollByDefault(url),
-          history: 'push',
-          url,
-          instant: unstable_instant,
-          startTransition: unstable_startTransition,
-        },
-        startTransition,
-        // a click has no caller to reject to; the boundary shows the failure
-      ).catch(() => {});
+      if (binding) {
+        dispatchChangeRoute(
+          binding.changeRoute,
+          route,
+          {
+            shouldScroll: scroll ?? shouldScrollByDefault(url),
+            history: 'push',
+            url,
+            instant: unstable_instant,
+            startTransition: unstable_startTransition,
+          },
+          startTransition,
+          // a click has no caller to reject to; the boundary shows the failure
+        ).catch(() => {});
+      } else if (host) {
+        startTransition(() => {
+          void host
+            .navigate(resolvedTo, {
+              history: 'push',
+              ...(scroll !== undefined ? { scroll } : {}),
+            })
+            .catch(() => {});
+        });
+      } else {
+        throw new Error('Missing Router');
+      }
     } else if (url.hash && scroll !== false) {
       scrollToHash(url.hash, 'auto', false);
     }
@@ -814,7 +867,7 @@ export function Link<Path extends RoutePath>({
   };
   const onMouseEnter = unstable_prefetchOnEnter
     ? (event: MouseEvent<HTMLAnchorElement>) => {
-        prefetchIfNotCurrent(router, resolvedTo, unstable_prefetchOnEnter);
+        prefetchIfNotCurrent(host?.route, resolvedTo, unstable_prefetchOnEnter);
         props.onMouseEnter?.(event);
       }
     : props.onMouseEnter;
@@ -834,7 +887,7 @@ export function Link<Path extends RoutePath>({
   );
 }
 
-const notAvailableInServer = (name: string) => () => {
+const notAvailableInServer = (name: string) => async () => {
   throw new Error(`${name} is not in the server`);
 };
 
@@ -899,7 +952,8 @@ const FollowError = ({
   reset: () => void;
   fail: (original: unknown, error: unknown) => void;
 }) => {
-  const { route, routerState, changeRoute } = useRouterOrThrow();
+  const { route } = useHostOrThrow();
+  const { routerState, changeRoute } = useHistoryBindingOrThrow();
   const { path: routePath, query: routeQuery, hash: routeHash } = route;
   const caughtAtRef = useRef<readonly [string, string, string]>(undefined);
   caughtAtRef.current ??= [routePath, routeQuery, routeHash];
@@ -1061,17 +1115,19 @@ const preloadRouteModules = (path: string) => {
 const fetchSlice = (
   id: SliceId,
   mergeElements: ReturnType<typeof useMergeElements>,
-  fetchingSlices: Map<SliceId, Promise<Elements>>,
   options?: { replace?: boolean },
 ) => {
-  if (fetchingSlices.has(id) && !options?.replace) {
+  const request = startSliceFetch(
+    id,
+    () => fetchRsc(encodeSliceId(id)),
+    options,
+  );
+  if (!request) {
     return;
   }
-  const request = fetchRsc(encodeSliceId(id));
-  fetchingSlices.set(id, request);
   request
     .then((result) => {
-      if (fetchingSlices.get(id) === request) {
+      if (isCurrentSliceFetch(id, request)) {
         return mergeElements(result);
       }
     })
@@ -1079,9 +1135,7 @@ const fetchSlice = (
       console.error('Failed to fetch slice:', e);
     })
     .finally(() => {
-      if (fetchingSlices.get(id) === request) {
-        fetchingSlices.delete(id);
-      }
+      finishSliceFetch(id, request);
     });
 };
 
@@ -1090,6 +1144,7 @@ const fetchSlice = (
  * first visit fetches the slice if it is missing or mutable; later visits reuse
  * an immutable copy. The lazy `fallback` is shown only while the slot is absent
  * from the elements map (it does not reappear on a later refetch — see FIXME).
+ * Does not require a router host.
  */
 export function Slice({
   id,
@@ -1107,7 +1162,6 @@ export function Slice({
       fallback: ReactNode;
     }
 )) {
-  const { fetchingSlices, lazySliceIds } = useRouterOrThrow();
   const mergeElements = useMergeElements();
   const slotId = getSliceSlotId(id);
   const elementsPromise = useElementsPromise();
@@ -1117,14 +1171,14 @@ export function Slice({
     (!(slotId in elements) || !isImmutableElement(elements, slotId));
   useEffect(() => {
     if (props.lazy) {
-      lazySliceIds.add(id);
+      registerLazySlice(id);
     }
-  }, [id, lazySliceIds, props.lazy]);
+  }, [id, props.lazy]);
   useEffect(() => {
     if (needsToFetchSlice) {
-      fetchSlice(id, mergeElements, fetchingSlices);
+      fetchSlice(id, mergeElements);
     }
-  }, [fetchingSlices, id, mergeElements, needsToFetchSlice]);
+  }, [id, mergeElements, needsToFetchSlice]);
   if (props.lazy && !(slotId in elements)) {
     // FIXME the fallback doesn't show on refetch after the first one.
     return props.fallback;
@@ -1162,11 +1216,6 @@ const InnerRouter = ({
 
   const refetch = useRefetch();
   const mergeElements = useMergeElements();
-  const [fetchingSlices] = useState(
-    () => new Map<SliceId, Promise<Elements>>(),
-  );
-  // Lazy slice elements stay cached after unmount, so their ids do too.
-  const [lazySliceIds] = useState(() => new Set<SliceId>());
   const pendingNavigationRef = useRef<{
     controller: AbortController;
     queuedState?: RouterState;
@@ -1255,21 +1304,14 @@ const InnerRouter = ({
             encodeRoutePath(settledRoute.path),
             createRscParams(settledRoute.query),
           ).then(learnStaticFromElements, () => {});
-          lazySliceIds.forEach((id) => {
-            fetchSlice(id, mergeElements, fetchingSlices, { replace: true });
+          forEachRegisteredLazySlice((id) => {
+            fetchSlice(id, mergeElements, { replace: true });
           });
         });
       };
       return registerRscReloadListener(refetchRouteOnHmr);
     }
-  }, [
-    refetch,
-    routeFallback,
-    cancelPendingNavigation,
-    lazySliceIds,
-    fetchingSlices,
-    mergeElements,
-  ]);
+  }, [refetch, routeFallback, cancelPendingNavigation, mergeElements]);
 
   const changeRoute: ChangeRoute = useCallback(
     async function changeRoute(nextRoute, options) {
@@ -1641,10 +1683,17 @@ const InnerRouter = ({
     return registerCallServerElementsListener(listener);
   }, [changeRouteFromServer]);
 
-  const prefetchRoute: PrefetchRoute = useCallback((route, options) => {
-    preloadRouteModules(route.path);
-    prefetchCachedRoute(route, options);
-  }, []);
+  const navigate: HostNavigate = useCallback(
+    (href, opts) => {
+      const url = new URL(href, window.location.href);
+      return dispatchChangeRoute(changeRoute, parseRoute(url), {
+        shouldScroll: opts.scroll ?? shouldScrollByDefault(url),
+        history: opts.history,
+        url,
+      });
+    },
+    [changeRoute],
+  );
 
   useEffect(() => {
     const callback = () => {
@@ -1691,17 +1740,10 @@ const InnerRouter = ({
     </Slot>
   );
   return (
-    <RouterContext
-      value={{
-        route: currentRoute,
-        routerState,
-        changeRoute,
-        prefetchRoute,
-        fetchingSlices,
-        lazySliceIds,
-      }}
-    >
-      {rootElement}
+    <RouterContext value={{ route: currentRoute, navigate }}>
+      <HistoryRouterContext value={{ routerState, changeRoute }}>
+        {rootElement}
+      </HistoryRouterContext>
     </RouterContext>
   );
 };
@@ -1744,10 +1786,7 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
       <RouterContext
         value={{
           route,
-          changeRoute: notAvailableInServer('changeRoute'),
-          prefetchRoute: notAvailableInServer('prefetchRoute'),
-          fetchingSlices: new Map<SliceId, Promise<Elements>>(),
-          lazySliceIds: new Set<SliceId>(),
+          navigate: notAvailableInServer('navigate'),
         }}
       >
         {rootElement}

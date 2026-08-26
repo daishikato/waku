@@ -10,17 +10,15 @@ import {
 } from '../isomorphic-utils/route-path.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
 import {
+  canCommitInstantly,
+  getRouteFromElements,
+  isStaticFromElements,
+} from './element-meta.js';
+import {
   type PrefetchEntry,
   type PrefetchOptions,
   createPrefetchManager,
 } from './prefetch-cache.js';
-import {
-  canCommitInstantly,
-  getRouteFromElements,
-  isStaticFromElements,
-} from './router-state.js';
-// meta / canCommitInstantly live here; RouterState stays with the history
-// binding when this file splits
 
 type Elements = Record<string | symbol, unknown>;
 
