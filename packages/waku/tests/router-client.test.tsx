@@ -32,6 +32,7 @@ import {
   clearCaches,
   clearRegisteredLazySlices,
 } from '../src/router/client-utils/caches.js';
+import { RouterHostContext } from '../src/router/client-utils/host.js';
 import { PREFETCH_LIMIT } from '../src/router/client-utils/prefetch-cache.js';
 import {
   getInFlightSliceCount,
@@ -53,6 +54,8 @@ import {
   useNavigationStatus_UNSTABLE as useNavigationStatus,
   useParams_UNSTABLE as useParams,
   useRouter,
+  useSearch_UNSTABLE as useSearch,
+  useSetSearch_UNSTABLE as useSetSearch,
 } from '../src/router/client.js';
 import {
   HAS404_ID,
@@ -1023,14 +1026,14 @@ describe('useRouter + Link with context', () => {
     };
 
     const view = await renderApp(
-      <RouterContext
+      <RouterHostContext
         value={{
           route: { path: '/posts/a%20b', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
+          navigate: async () => {},
         }}
       >
         <Probe />
-      </RouterContext>,
+      </RouterHostContext>,
     );
 
     expect(capture.params).toEqual({ slug: 'a b' });
@@ -1045,14 +1048,14 @@ describe('useRouter + Link with context', () => {
     };
 
     const view = await renderApp(
-      <RouterContext
+      <RouterHostContext
         value={{
           route: { path: '/about', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
+          navigate: async () => {},
         }}
       >
         <Probe />
-      </RouterContext>,
+      </RouterHostContext>,
     );
 
     expect(capture.params).toBeNull();
@@ -1098,14 +1101,14 @@ describe('useRouter + Link with context', () => {
       });
       setRoute = setRouteState;
       return (
-        <RouterContext
+        <RouterHostContext
           value={{
             route,
-            changeRoute: vi.fn(async () => {}),
+            navigate: async () => {},
           }}
         >
           <Probe />
-        </RouterContext>
+        </RouterHostContext>
       );
     };
 
@@ -1116,6 +1119,93 @@ describe('useRouter + Link with context', () => {
       setRoute!({ path: '/posts/b', query: '', hash: '' });
     });
     expect(capture.params).toEqual({ slug: 'b' });
+
+    view.unmount();
+  });
+
+  test('useSearch and useSetSearch work under a bare RouterHost', async () => {
+    window.history.replaceState({}, '', '/posts/hello?tab=comments');
+    const navigate = vi.fn(async () => {});
+    const capture = {
+      params: undefined as unknown,
+      search: undefined as unknown,
+    };
+    const Probe = () => {
+      capture.params = useParams({ from: '/posts/[slug]' });
+      capture.search = useSearch({ from: '/posts/[slug]' });
+      const setSearch = useSetSearch({ from: '/posts/[slug]' });
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            void setSearch({ tab: 'x' }, { history: 'replace', scroll: true });
+          }}
+        >
+          set
+        </button>
+      );
+    };
+
+    const view = await renderApp(
+      <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
+        <RouterHostContext
+          value={{
+            route: { path: '/posts/hello', query: 'tab=comments', hash: '' },
+            navigate,
+          }}
+        >
+          <Probe />
+        </RouterHostContext>
+      </Unstable_SearchCodecsProvider>,
+    );
+
+    expect(capture.params).toEqual({ slug: 'hello' });
+    expect(capture.search).toEqual({ tab: 'comments' });
+
+    await act(async () => {
+      view.container.querySelector('button')!.click();
+    });
+    expect(navigate).toHaveBeenCalledWith('/posts/hello?tab=x', {
+      history: 'replace',
+      scroll: true,
+    });
+
+    view.unmount();
+  });
+
+  test('useSetSearch is a no-op when the host path does not match', async () => {
+    const navigate = vi.fn(async () => {});
+    const Probe = () => {
+      const setSearch = useSetSearch({ from: '/posts/[slug]' });
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            void setSearch({ tab: 'x' });
+          }}
+        >
+          set
+        </button>
+      );
+    };
+
+    const view = await renderApp(
+      <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
+        <RouterHostContext
+          value={{
+            route: { path: '/about', query: '', hash: '' },
+            navigate,
+          }}
+        >
+          <Probe />
+        </RouterHostContext>
+      </Unstable_SearchCodecsProvider>,
+    );
+
+    await act(async () => {
+      view.container.querySelector('button')!.click();
+    });
+    expect(navigate).not.toHaveBeenCalled();
 
     view.unmount();
   });

@@ -55,7 +55,9 @@ describe('canCommitInstantly', () => {
   });
 
   test('true when only the prefetched elements hold it', () => {
-    expect(canCommitInstantly('route:/a', {}, immutable('route:/a'))).toBe(true);
+    expect(canCommitInstantly('route:/a', {}, immutable('route:/a'))).toBe(
+      true,
+    );
   });
 
   test('false without an immutable etag for the slot', () => {

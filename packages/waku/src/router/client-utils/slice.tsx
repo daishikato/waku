@@ -95,4 +95,4 @@ export function Slice({
     return props.fallback;
   }
   return <Slot id={slotId}>{children}</Slot>;
-};
+}

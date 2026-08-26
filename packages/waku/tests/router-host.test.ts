@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { expectType } from 'ts-expect';
 import type { TypeEqual } from 'ts-expect';
+import { describe, expect, it } from 'vitest';
 import type { RouterHost } from '../src/router/client-utils/host.js';
 
 describe('RouterHost contract', () => {

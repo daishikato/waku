@@ -55,7 +55,7 @@ import {
   isStaticFromElements,
 } from './client-utils/element-meta.js';
 import { decideFollow, isFollowable } from './client-utils/error-route.js';
-import { RouterHostContext } from './client-utils/host.js';
+import { RouterHostContext, useRouterHost } from './client-utils/host.js';
 import type { RouterHost } from './client-utils/host.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
@@ -502,8 +502,8 @@ export function useParams_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): RouteParams<Path> | null {
-  const { path } = useRouter();
-  return useMemo(() => matchRouteParams(from, path), [from, path]);
+  const { route } = useRouterHost();
+  return useMemo(() => matchRouteParams(from, route.path), [from, route.path]);
 }
 
 /**
@@ -556,16 +556,16 @@ export function useSearch_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): RouteSearch<Path> | null {
-  const { path, query } = useRouter();
+  const { route } = useRouterHost();
   const codecs = useContext(SearchCodecsContext);
   return useMemo(() => {
-    if (matchRouteParams(from, path) === null) {
+    if (matchRouteParams(from, route.path) === null) {
       return null;
     }
     const codecId = getRouteSearchCodecId(from);
     const codec = codecId !== undefined ? codecs.get(codecId) : undefined;
-    return codec ? (codec.parse(query) as RouteSearch<Path>) : null;
-  }, [from, path, query, codecs]);
+    return codec ? (codec.parse(route.query) as RouteSearch<Path>) : null;
+  }, [from, route.path, route.query, codecs]);
 }
 
 type SetSearch<Path extends RoutePath> = (
@@ -587,8 +587,7 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
 }: {
   from: Path;
 }): SetSearch<Path> {
-  const router = useRouterOrThrow();
-  const { route, changeRoute } = router;
+  const { route, navigate } = useRouterHost();
   const codecs = useContext(SearchCodecsContext);
   return useCallback<SetSearch<Path>>(
     async (update, options) => {
@@ -605,13 +604,12 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
       const nextQuery = codec.serialize({ ...prev, ...partial });
       const url = new URL(window.location.href);
       url.search = nextQuery;
-      await dispatchChangeRoute(changeRoute, parseRoute(url), {
-        shouldScroll: options?.scroll ?? false,
+      await navigate(`${url.pathname}${url.search}${url.hash}`, {
         history: options?.history ?? 'push',
-        url,
+        scroll: options?.scroll ?? false,
       });
     },
-    [from, route.path, route.query, codecs, changeRoute],
+    [from, route.path, route.query, codecs, navigate],
   );
 }
 
@@ -817,7 +815,11 @@ export function Link<Path extends RoutePath>({
   };
   const onMouseEnter = unstable_prefetchOnEnter
     ? (event: MouseEvent<HTMLAnchorElement>) => {
-        prefetchIfNotCurrent(router?.route, resolvedTo, unstable_prefetchOnEnter);
+        prefetchIfNotCurrent(
+          router?.route,
+          resolvedTo,
+          unstable_prefetchOnEnter,
+        );
         props.onMouseEnter?.(event);
       }
     : props.onMouseEnter;
