@@ -107,6 +107,7 @@ describe('buildMergePatch', () => {
     expect(patch[ROUTE_ID]).toEqual(['/next', 'q=1']);
     expect(patch[HAS404_ID]).toBe(true);
     expect(patch[IS_STATIC_ID]).toBe(false);
+    expect(Reflect.ownKeys(patch)).toEqual([HAS404_ID, ROUTE_ID, IS_STATIC_ID]);
   });
 
   it('omits meta keys the response did not send', () => {
