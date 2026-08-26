@@ -2,6 +2,8 @@
 // and the rscParams identity map. Bindings read through capabilities
 // (hasCachedShell, getPrefetchedElements) and never hold the stores.
 // createCaches() is the test factory; production uses the module singleton.
+// The lazy-slice id set lives here so HMR can refetch after clearCaches();
+// it is not one of the cleared stores.
 
 import { unstable_fetchRsc as fetchRsc } from '../../minimal/client.js';
 import {
@@ -139,4 +141,21 @@ export const createRscParams = (query: string): URLSearchParams =>
 
 export const clearCaches = (): void => {
   singleton.clear();
+};
+
+const registeredLazySlices = new Set<string>();
+
+export const registerLazySlice = (id: string): (() => void) => {
+  warnClientWriteOnServer('registerLazySlice');
+  registeredLazySlices.add(id);
+  // slice elements stay cached after unmount; HMR refetches by iterating this set
+  return () => {};
+};
+
+export const forEachRegisteredLazySlice = (fn: (id: string) => void): void => {
+  registeredLazySlices.forEach(fn);
+};
+
+export const clearRegisteredLazySlices = (): void => {
+  registeredLazySlices.clear();
 };

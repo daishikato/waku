@@ -27,8 +27,16 @@ import {
   unstable_fetchRsc as fetchRsc,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
-import { clearCaches } from '../src/router/client-utils/caches.js';
+import * as routerCaches from '../src/router/client-utils/caches.js';
+import {
+  clearCaches,
+  clearRegisteredLazySlices,
+} from '../src/router/client-utils/caches.js';
 import { PREFETCH_LIMIT } from '../src/router/client-utils/prefetch-cache.js';
+import {
+  getInFlightSliceCount,
+  resetSliceFetches,
+} from '../src/router/client-utils/slice.js';
 import {
   ErrorBoundary,
   INTERNAL_ServerRouter,
@@ -52,6 +60,9 @@ import {
   ROUTE_ID,
   decodeRoutePath,
 } from '../src/router/isomorphic-utils/route-path.js';
+
+const spyPrefetchRoute = () =>
+  vi.spyOn(routerCaches, 'prefetchRoute').mockImplementation(() => {});
 
 const postsSearchCodec = {
   id: 'posts-test',
@@ -582,6 +593,8 @@ beforeEach(() => {
   prefetchRsc.mockReturnValue(resolvedThenable({}));
   vi.mocked(Root).mockClear();
   clearCaches();
+  clearRegisteredLazySlices();
+  resetSliceFetches();
 
   const IntersectionObserverMock = vi.fn(function (
     callback: IntersectionObserverCallback,
@@ -614,6 +627,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  const prefetch = routerCaches.prefetchRoute as { mockRestore?: () => void };
+  prefetch.mockRestore?.();
   vi.clearAllMocks();
 });
 
@@ -781,7 +796,7 @@ describe('useRouter + Link with context', () => {
       capture.router = router;
     };
     const changeRoute = vi.fn(async () => {});
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
 
     const Probe = () => {
       setRouter(useRouter() as unknown as RouterApi);
@@ -793,9 +808,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute,
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Probe />
@@ -892,9 +904,6 @@ describe('useRouter + Link with context', () => {
           value={{
             route: { path: '/start', query: '', hash: '' },
             changeRoute,
-            prefetchRoute: vi.fn(),
-            fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-            lazySliceIds: new Set<string>(),
           }}
         >
           <Probe />
@@ -950,7 +959,7 @@ describe('useRouter + Link with context', () => {
     try {
       expect(import.meta.env.WAKU_CONFIG_BASE_PATH).toBe('/base/');
       const capture = { router: null as RouterApi | null };
-      const prefetchRoute = vi.fn();
+      const prefetchRoute = spyPrefetchRoute();
       const Probe = () => {
         capture.router = useRouter() as unknown as RouterApi;
         return null;
@@ -962,12 +971,6 @@ describe('useRouter + Link with context', () => {
             value={{
               route: { path: '/start', query: '', hash: '' },
               changeRoute: vi.fn(async () => {}),
-              prefetchRoute,
-              fetchingSlices: new Map<
-                string,
-                Promise<Record<string, unknown>>
-              >(),
-              lazySliceIds: new Set<string>(),
             }}
           >
             <Probe />
@@ -1024,9 +1027,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/posts/a%20b', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Probe />
@@ -1049,9 +1049,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/about', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Probe />
@@ -1105,9 +1102,6 @@ describe('useRouter + Link with context', () => {
           value={{
             route,
             changeRoute: vi.fn(async () => {}),
-            prefetchRoute: vi.fn(),
-            fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-            lazySliceIds: new Set<string>(),
           }}
         >
           <Probe />
@@ -1128,16 +1122,13 @@ describe('useRouter + Link with context', () => {
 
   test('Link intercepts normal click and skips alt/defaultPrevented clicks', async () => {
     const changeRoute = vi.fn(async () => {});
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
 
     const view = await renderApp(
       <RouterContext
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute,
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <>
@@ -1198,7 +1189,6 @@ describe('useRouter + Link with context', () => {
 
   test('Link re-scrolls to the same hash on a repeated click', async () => {
     const changeRoute = vi.fn(async () => {});
-    const prefetchRoute = vi.fn();
     // Same href as the link's resolved target, so `internalOnClick` takes the
     // "no route change" path that previously bailed out entirely.
     window.history.replaceState({}, '', '/start#target');
@@ -1219,9 +1209,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '#target' },
           changeRoute,
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link to="/start#target" data-testid="hash-link">
@@ -1261,7 +1248,6 @@ describe('useRouter + Link with context', () => {
 
   test('Link with scroll={false} does not re-scroll on a same-hash click', async () => {
     const changeRoute = vi.fn(async () => {});
-    const prefetchRoute = vi.fn();
     window.history.replaceState({}, '', '/start#target');
 
     const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {
@@ -1276,9 +1262,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '#target' },
           changeRoute,
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link to="/start#target" scroll={false} data-testid="hash-link">
@@ -1311,7 +1294,7 @@ describe('useRouter + Link with context', () => {
 
   test('Link intercepts external, target, and download clicks', async () => {
     const changeRoute = vi.fn(async () => {});
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const view = await renderApp(
@@ -1319,9 +1302,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute,
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <>
@@ -1386,7 +1366,7 @@ describe('useRouter + Link with context', () => {
   });
 
   test('Link handles prefetchOnEnter and prefetchOnView', async () => {
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
     const onMouseEnter = vi.fn();
 
     const view = await renderApp(
@@ -1394,9 +1374,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link
@@ -1444,16 +1421,11 @@ describe('useRouter + Link with context', () => {
   });
 
   test('Link attaches prefetchOnView observer when enabled after mount', async () => {
-    const prefetchRoute = vi.fn();
-
     const view = await renderApp(
       <RouterContext
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <PrefetchOnViewToggleLink />
@@ -1488,9 +1460,6 @@ describe('useRouter + Link with context', () => {
     const contextValue = {
       route: { path: '/start', query: '', hash: '' },
       changeRoute: vi.fn(async () => {}),
-      prefetchRoute: vi.fn(),
-      fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-      lazySliceIds: new Set<string>(),
     };
 
     const objectRef: { current: HTMLAnchorElement | null } = { current: null };
@@ -1529,9 +1498,6 @@ describe('useRouter + Link with context', () => {
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link to="/next" ref={callbackRef}>
@@ -1552,62 +1518,32 @@ describe('useRouter + Link with context', () => {
 });
 
 describe('Slice', () => {
-  test('throws without a Router', async () => {
-    await expect(renderApp(<Slice id="slice-1" />)).rejects.toThrow(
-      'Missing Router',
-    );
-  });
-
-  test('renders existing slice slot', async () => {
+  test('renders without a Router', async () => {
     const slotId = unstable_getSliceSlotId('slice-1');
     const elements = {
       [slotId]: <div data-testid="slice">slice-content</div>,
     };
 
-    const view = await renderWithMinimalRoot(
-      <RouterContext
-        value={{
-          route: { path: '/start', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
-        }}
-      >
-        <Slice id="slice-1" />
-      </RouterContext>,
-      elements,
-    );
+    const view = await renderWithMinimalRoot(<Slice id="slice-1" />, elements);
 
     expect(view.container.textContent).toContain('slice-content');
     view.unmount();
   });
 
   test('lazy slice fetches once, dedupes, and clears the request on completion', async () => {
-    const fetchingSlices = new Map<string, Promise<Record<string, unknown>>>();
     const view = await renderWithMinimalRoot(
-      <RouterContext
-        value={{
-          route: { path: '/start', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices,
-          lazySliceIds: new Set<string>(),
-        }}
-      >
-        <>
-          <Slice
-            id="slice-1"
-            lazy
-            fallback={<div data-testid="fallback-1">loading 1</div>}
-          />
-          <Slice
-            id="slice-1"
-            lazy
-            fallback={<div data-testid="fallback-2">loading 2</div>}
-          />
-        </>
-      </RouterContext>,
+      <>
+        <Slice
+          id="slice-1"
+          lazy
+          fallback={<div data-testid="fallback-1">loading 1</div>}
+        />
+        <Slice
+          id="slice-1"
+          lazy
+          fallback={<div data-testid="fallback-2">loading 2</div>}
+        />
+      </>,
       {},
     );
 
@@ -1617,7 +1553,7 @@ describe('Slice', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(refetch).toHaveBeenCalledWith(unstable_encodeSliceId('slice-1'));
     // released when it settles, so the slice can be fetched again later
-    expect(fetchingSlices.size).toBe(0);
+    expect(getInFlightSliceCount()).toBe(0);
 
     view.unmount();
   });
@@ -1630,17 +1566,7 @@ describe('Slice', () => {
     };
 
     const view = await renderWithMinimalRoot(
-      <RouterContext
-        value={{
-          route: { path: '/start', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
-        }}
-      >
-        <Slice id="slice-1" lazy fallback={<div>fallback</div>} />
-      </RouterContext>,
+      <Slice id="slice-1" lazy fallback={<div>fallback</div>} />,
       elements,
     );
 
@@ -1659,17 +1585,7 @@ describe('Slice', () => {
     };
 
     const view = await renderWithMinimalRoot(
-      <RouterContext
-        value={{
-          route: { path: '/start', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
-        }}
-      >
-        <Slice id="slice-1" lazy fallback={<div>fallback</div>} />
-      </RouterContext>,
+      <Slice id="slice-1" lazy fallback={<div>fallback</div>} />,
       elements,
     );
 
@@ -1682,25 +1598,13 @@ describe('Slice', () => {
   });
 
   test('logs refetch failures and clears the request', async () => {
-    const fetchingSlices = new Map<string, Promise<Record<string, unknown>>>();
-
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const refetch = vi.fn<RefetchInner>(async () => ({}));
     refetch.mockRejectedValueOnce(new Error('slice failed'));
     installRefetch(refetch);
 
     const view = await renderWithMinimalRoot(
-      <RouterContext
-        value={{
-          route: { path: '/start', query: '', hash: '' },
-          changeRoute: vi.fn(async () => {}),
-          prefetchRoute: vi.fn(),
-          fetchingSlices,
-          lazySliceIds: new Set<string>(),
-        }}
-      >
-        <Slice id="slice-1" lazy fallback={<div>fallback</div>} />
-      </RouterContext>,
+      <Slice id="slice-1" lazy fallback={<div>fallback</div>} />,
       {},
     );
 
@@ -1709,7 +1613,7 @@ describe('Slice', () => {
       expect.any(Error),
     );
     // a failed fetch releases the id too, so a retry is possible
-    expect(fetchingSlices.size).toBe(0);
+    expect(getInFlightSliceCount()).toBe(0);
 
     view.unmount();
   });
@@ -3442,15 +3346,12 @@ describe('Router integration', () => {
   });
 
   test('a hover prefetch skips a link that only adds a hash', async () => {
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
     const view = await renderApp(
       <RouterContext
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link to="/start#target" unstable_prefetchOnEnter={{}}>
@@ -3474,15 +3375,12 @@ describe('Router integration', () => {
   test('a hover prefetch compares with the route on screen, not the address bar', async () => {
     // an interceptor or a failed navigation leaves the two apart
     window.history.replaceState({}, '', '/blocked');
-    const prefetchRoute = vi.fn();
+    const prefetchRoute = spyPrefetchRoute();
     const view = await renderApp(
       <RouterContext
         value={{
           route: { path: '/start', query: '', hash: '' },
           changeRoute: vi.fn(async () => {}),
-          prefetchRoute,
-          fetchingSlices: new Map<string, Promise<Record<string, unknown>>>(),
-          lazySliceIds: new Set<string>(),
         }}
       >
         <Link to="/start#target" unstable_prefetchOnEnter={{}}>
@@ -8559,9 +8457,7 @@ describe('INTERNAL_ServerRouter', () => {
     await expect(capture.router!.push('/next')).rejects.toThrow(
       'changeRoute is not in the server',
     );
-    expect(() => capture.router!.prefetch('/next')).toThrow(
-      'prefetchRoute is not in the server',
-    );
+    expect(() => capture.router!.prefetch('/next')).not.toThrow();
 
     view.unmount();
   });

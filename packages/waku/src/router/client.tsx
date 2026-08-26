@@ -31,7 +31,6 @@ import {
   unstable_addBase as addBase,
   unstable_fetchRsc as fetchRsc,
   unstable_getErrorInfo as getErrorInfo,
-  unstable_isImmutableElement as isImmutableElement,
   unstable_registerCallServerElementsListener as registerCallServerElementsListener,
   unstable_registerRscReloadListener as registerRscReloadListener,
   unstable_removeBase as removeBase,
@@ -42,6 +41,7 @@ import {
   type PrefetchOptions,
   clearCaches,
   createRscParams,
+  forEachRegisteredLazySlice,
   getPrefetch,
   getPrefetchedElements,
   hasCachedShell,
@@ -85,6 +85,8 @@ import {
   shouldScrollByDefault,
   shouldScrollForRouteChange,
 } from './client-utils/scroll.js';
+import { fetchSlice } from './client-utils/slice.js';
+import type { SliceId } from './client-utils/slice.js';
 import type {
   RouteParams,
   RouteSearch,
@@ -329,15 +331,9 @@ const navigationFromLoad = (
 
 type PrefetchRoute = (route: RouteProps, options?: PrefetchOptions) => void;
 
-type SliceId = string;
-
 const RouterContext = createContext<{
   route: RouteProps;
-  routerState?: RouterState | undefined;
   changeRoute: ChangeRoute;
-  prefetchRoute: PrefetchRoute;
-  fetchingSlices: Map<SliceId, Promise<Elements>>;
-  lazySliceIds: Set<SliceId>;
 } | null>(null);
 
 const SearchCodecsContext = createContext<ReadonlyMap<string, AnyCodec>>(
@@ -418,7 +414,7 @@ const resolveRouteHref = <Path extends RoutePath>(
  */
 export function useRouter() {
   const router = useRouterOrThrow();
-  const { route, changeRoute, prefetchRoute } = router;
+  const { route, changeRoute } = router;
   const resolveCodec = useResolveSearchCodec();
   const navigate = useCallback(
     (
@@ -477,9 +473,11 @@ export function useRouter() {
         resolveRouteHref(to, resolveCodec),
         window.location.href,
       );
-      prefetchRoute(parseRoute(url), options);
+      const next = parseRoute(url);
+      preloadRouteModules(next.path);
+      prefetchCachedRoute(next, options);
     },
-    [prefetchRoute, resolveCodec],
+    [resolveCodec],
   ) as Prefetch;
   return {
     ...route,
@@ -658,22 +656,23 @@ function useSharedRef<T>(
 }
 
 const prefetchIfNotCurrent = (
-  router: { route: RouteProps; prefetchRoute: PrefetchRoute } | null,
+  current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
 ) => {
-  if (!router) {
+  if (!current) {
     return;
   }
   const route = parseRoute(new URL(resolvedTo, window.location.href));
-  if (!isSameRscRoute(route, router.route)) {
-    router.prefetchRoute(route, options);
+  if (!isSameRscRoute(route, current)) {
+    preloadRouteModules(route.path);
+    prefetchCachedRoute(route, options);
   }
 };
 
 const usePrefetchOnView = (
   ref: RefObject<HTMLAnchorElement | null>,
-  router: { route: RouteProps; prefetchRoute: PrefetchRoute } | null,
+  current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
 ) => {
@@ -688,7 +687,7 @@ const usePrefetchOnView = (
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            prefetchIfNotCurrent(router, resolvedTo, {
+            prefetchIfNotCurrent(current, resolvedTo, {
               ...(mode ? { mode } : {}),
               ...(ttl !== undefined ? { ttl } : {}),
             });
@@ -701,7 +700,7 @@ const usePrefetchOnView = (
     return () => {
       observer.disconnect();
     };
-  }, [enabled, mode, ttl, router, resolvedTo, ref]);
+  }, [enabled, mode, ttl, current, resolvedTo, ref]);
 };
 
 type NavigationStatus = { pending?: boolean };
@@ -773,7 +772,7 @@ export function Link<Path extends RoutePath>({
   const [isPending, startTransition] = useTransition();
   const [ref, setRef] = useSharedRef<HTMLAnchorElement>(refProp);
 
-  usePrefetchOnView(ref, router, resolvedTo, unstable_prefetchOnView);
+  usePrefetchOnView(ref, router?.route, resolvedTo, unstable_prefetchOnView);
   const internalOnClick = () => {
     const url = new URL(resolvedTo, window.location.href);
     if (url.href !== window.location.href) {
@@ -818,7 +817,7 @@ export function Link<Path extends RoutePath>({
   };
   const onMouseEnter = unstable_prefetchOnEnter
     ? (event: MouseEvent<HTMLAnchorElement>) => {
-        prefetchIfNotCurrent(router, resolvedTo, unstable_prefetchOnEnter);
+        prefetchIfNotCurrent(router?.route, resolvedTo, unstable_prefetchOnEnter);
         props.onMouseEnter?.(event);
       }
     : props.onMouseEnter;
@@ -903,7 +902,8 @@ const FollowError = ({
   reset: () => void;
   fail: (original: unknown, error: unknown) => void;
 }) => {
-  const { route, routerState, changeRoute } = useRouterOrThrow();
+  const { route, changeRoute } = useRouterOrThrow();
+  const routerState = getRouterState(use(useElementsPromise()));
   const { path: routePath, query: routeQuery, hash: routeHash } = route;
   const caughtAtRef = useRef<readonly [string, string, string]>(undefined);
   caughtAtRef.current ??= [routePath, routeQuery, routeHash];
@@ -1062,79 +1062,7 @@ const preloadRouteModules = (path: string) => {
   });
 };
 
-const fetchSlice = (
-  id: SliceId,
-  mergeElements: ReturnType<typeof useMergeElements>,
-  fetchingSlices: Map<SliceId, Promise<Elements>>,
-  options?: { replace?: boolean },
-) => {
-  if (fetchingSlices.has(id) && !options?.replace) {
-    return;
-  }
-  const request = fetchRsc(encodeSliceId(id));
-  fetchingSlices.set(id, request);
-  request
-    .then((result) => {
-      if (fetchingSlices.get(id) === request) {
-        return mergeElements(result);
-      }
-    })
-    .catch((e) => {
-      console.error('Failed to fetch slice:', e);
-    })
-    .finally(() => {
-      if (fetchingSlices.get(id) === request) {
-        fetchingSlices.delete(id);
-      }
-    });
-};
-
-/**
- * Renders a named slice slot from the current RSC elements. With `lazy`, the
- * first visit fetches the slice if it is missing or mutable; later visits reuse
- * an immutable copy. The lazy `fallback` is shown only while the slot is absent
- * from the elements map (it does not reappear on a later refetch — see FIXME).
- */
-export function Slice({
-  id,
-  children,
-  ...props
-}: {
-  id: SliceId;
-  children?: ReactNode;
-} & (
-  | {
-      lazy?: false;
-    }
-  | {
-      lazy: true;
-      fallback: ReactNode;
-    }
-)) {
-  const { fetchingSlices, lazySliceIds } = useRouterOrThrow();
-  const mergeElements = useMergeElements();
-  const slotId = getSliceSlotId(id);
-  const elementsPromise = useElementsPromise();
-  const elements = use(elementsPromise);
-  const needsToFetchSlice =
-    props.lazy &&
-    (!(slotId in elements) || !isImmutableElement(elements, slotId));
-  useEffect(() => {
-    if (props.lazy) {
-      lazySliceIds.add(id);
-    }
-  }, [id, lazySliceIds, props.lazy]);
-  useEffect(() => {
-    if (needsToFetchSlice) {
-      fetchSlice(id, mergeElements, fetchingSlices);
-    }
-  }, [fetchingSlices, id, mergeElements, needsToFetchSlice]);
-  if (props.lazy && !(slotId in elements)) {
-    // FIXME the fallback doesn't show on refetch after the first one.
-    return props.fallback;
-  }
-  return <Slot id={slotId}>{children}</Slot>;
-}
+export { Slice } from './client-utils/slice.js';
 
 const InnerRouter = ({
   fallbackRoute,
@@ -1166,11 +1094,6 @@ const InnerRouter = ({
 
   const refetch = useRefetch();
   const mergeElements = useMergeElements();
-  const [fetchingSlices] = useState(
-    () => new Map<SliceId, Promise<Elements>>(),
-  );
-  // Lazy slice elements stay cached after unmount, so their ids do too.
-  const [lazySliceIds] = useState(() => new Set<SliceId>());
   const pendingNavigationRef = useRef<{
     controller: AbortController;
     queuedState?: RouterState;
@@ -1259,21 +1182,14 @@ const InnerRouter = ({
             encodeRoutePath(settledRoute.path),
             createRscParams(settledRoute.query),
           ).then(learnStaticFromElements, () => {});
-          lazySliceIds.forEach((id) => {
-            fetchSlice(id, mergeElements, fetchingSlices, { replace: true });
+          forEachRegisteredLazySlice((id) => {
+            fetchSlice(id, mergeElements, { replace: true });
           });
         });
       };
       return registerRscReloadListener(refetchRouteOnHmr);
     }
-  }, [
-    refetch,
-    routeFallback,
-    cancelPendingNavigation,
-    lazySliceIds,
-    fetchingSlices,
-    mergeElements,
-  ]);
+  }, [refetch, routeFallback, cancelPendingNavigation, mergeElements]);
 
   const changeRoute: ChangeRoute = useCallback(
     async function changeRoute(nextRoute, options) {
@@ -1644,11 +1560,6 @@ const InnerRouter = ({
     return registerCallServerElementsListener(listener);
   }, [changeRouteFromServer]);
 
-  const prefetchRoute: PrefetchRoute = useCallback((route, options) => {
-    preloadRouteModules(route.path);
-    prefetchCachedRoute(route, options);
-  }, []);
-
   const navigate = useCallback<RouterHost['navigate']>(
     (href, opts) => {
       const url = new URL(href, window.location.href);
@@ -1713,11 +1624,7 @@ const InnerRouter = ({
     <RouterContext
       value={{
         route: currentRoute,
-        routerState,
         changeRoute,
-        prefetchRoute,
-        fetchingSlices,
-        lazySliceIds,
       }}
     >
       <RouterHostContext value={host}>{rootElement}</RouterHostContext>
@@ -1763,9 +1670,6 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
       value={{
         route,
         changeRoute: notAvailableInServer('changeRoute'),
-        prefetchRoute: notAvailableInServer('prefetchRoute'),
-        fetchingSlices: new Map<SliceId, Promise<Elements>>(),
-        lazySliceIds: new Set<SliceId>(),
       }}
     >
       <RouterHostContext

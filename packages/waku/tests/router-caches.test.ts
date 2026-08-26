@@ -4,13 +4,16 @@ import { ETAG_ID_PREFIX, IMMUTABLE_ETAG } from '../src/lib/utils/etags.js';
 import { unstable_fetchRsc as fetchRsc } from '../src/minimal/client.js';
 import {
   clearCaches,
+  clearRegisteredLazySlices,
   createCaches,
   createRscParams,
+  forEachRegisteredLazySlice,
   getPrefetch,
   getPrefetchedElements,
   hasStaticPath,
   learnStaticFromElements,
   prefetchRoute,
+  registerLazySlice,
 } from '../src/router/client-utils/caches.js';
 import {
   IS_STATIC_ID,
@@ -53,6 +56,7 @@ const settlePrefetch = async (
 describe('layer-1 router caches', () => {
   afterEach(() => {
     clearCaches();
+    clearRegisteredLazySlices();
     vi.mocked(fetchRsc).mockReset();
     vi.useRealTimers();
   });
@@ -262,6 +266,7 @@ describe('layer-1 router caches', () => {
       caches.prefetchRoute(route('/a'));
       caches.learnStaticFromElements({});
       caches.clear();
+      registerLazySlice('slice-a');
       const messages = warn.mock.calls.map((call) => String(call[0]));
       expect(
         messages.some((message) => message.includes('prefetchRoute')),
@@ -270,11 +275,31 @@ describe('layer-1 router caches', () => {
         messages.some((message) => message.includes('learnStaticFromElements')),
       ).toBe(true);
       expect(messages.some((message) => message.includes('clear'))).toBe(true);
+      expect(
+        messages.some((message) => message.includes('registerLazySlice')),
+      ).toBe(true);
     } finally {
       if (hadWindow) {
         globalThis.window = windowValue;
       }
       warn.mockRestore();
     }
+  });
+});
+
+describe('registered lazy slices', () => {
+  afterEach(() => {
+    clearCaches();
+    clearRegisteredLazySlices();
+  });
+
+  it('keeps ids after the register cleanup and after clearCaches', () => {
+    const cleanup = registerLazySlice('a');
+    registerLazySlice('b');
+    cleanup();
+    clearCaches();
+    const ids: string[] = [];
+    forEachRegisteredLazySlice((id) => ids.push(id));
+    expect(ids.sort()).toEqual(['a', 'b']);
   });
 });
