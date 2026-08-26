@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as client from '../src/router/client.js';
 import * as core from '../src/router/core.js';
 
-const routerSrc = join(dirname(fileURLToPath(import.meta.url)), '../src/router');
+const routerSrc = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../src/router',
+);
 
 const runtimeExportNames = (ns: object): string[] =>
   Reflect.ownKeys(ns)
