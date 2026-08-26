@@ -52,6 +52,13 @@ import {
 } from './client-utils/caches.js';
 import { decideFollow, isFollowable } from './client-utils/error-route.js';
 import {
+  MAX_FOLLOWS_PER_NAVIGATION,
+  abortable,
+  fetchRouteElements,
+  load,
+} from './client-utils/load.js';
+import type { LoadOutcome } from './client-utils/load.js';
+import {
   getRouteUrl,
   isSameRoute,
   isSameRscRoute,
@@ -203,49 +210,6 @@ const useRefetch = (): Refetch => {
   );
 };
 
-const abortable = <T,>(
-  promise: Promise<T>,
-  signal: AbortSignal | undefined,
-): Promise<T> => {
-  if (!signal) {
-    return promise;
-  }
-  if (signal.aborted) {
-    return Promise.reject(signal.reason);
-  }
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener('abort', abort, { once: true });
-    promise
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener('abort', abort));
-  });
-};
-
-const fetchRouteElements = (
-  rscPath: string,
-  rscParams: URLSearchParams,
-  {
-    signal,
-    prefetched,
-    onBuildIdMismatch,
-    base,
-  }: {
-    signal: AbortSignal;
-    prefetched?: Promise<Elements>;
-    onBuildIdMismatch: () => void;
-    base: Elements;
-  },
-): Promise<Elements> => {
-  return prefetched
-    ? abortable(prefetched, signal)
-    : fetchRsc(rscPath, rscParams, {
-        signal,
-        onBuildIdMismatch,
-        unstable_base: base,
-      });
-};
-
 const isAltClick = (event: MouseEvent<HTMLAnchorElement>) =>
   event.button !== 0 ||
   !!(event.metaKey || event.altKey || event.ctrlKey || event.shiftKey);
@@ -302,6 +266,62 @@ type NavigationOutcome =
       restoreBase: boolean;
     }
   | { type: 'superseded' };
+
+const navigationFromLoad = (
+  outcome: LoadOutcome,
+  history: HistoryIntent,
+): NavigationOutcome => {
+  switch (outcome.type) {
+    case 'aborted':
+      return { type: 'superseded' };
+    case 'reused':
+      return {
+        type: 'reused',
+        attempt: {
+          route: outcome.route,
+          url: outcome.url,
+          follows: outcome.follows,
+        },
+        history,
+      };
+    case 'external':
+      return {
+        type: 'left',
+        attempt: {
+          route: outcome.route,
+          url: outcome.from,
+          follows: outcome.follows,
+        },
+        history,
+        url: outcome.url,
+        error: outcome.error,
+      };
+    case 'failed':
+      return {
+        type: 'failed',
+        attempt: {
+          route: outcome.route,
+          url: outcome.url,
+          follows: outcome.follows,
+        },
+        history,
+        error: outcome.error,
+        restoreBase: outcome.restoreMeta,
+      };
+    case 'loaded':
+      return {
+        type: 'landed',
+        attempt: {
+          route: outcome.route,
+          url: outcome.url,
+          follows: outcome.follows,
+        },
+        history,
+        elements: outcome.elements,
+        instant: false,
+      };
+  }
+};
 
 type PrefetchRoute = (route: RouteProps, options?: PrefetchOptions) => void;
 
@@ -868,8 +888,6 @@ export class ErrorBoundary extends Component<
   }
 }
 
-const MAX_FOLLOWS_PER_NAVIGATION = 20;
-
 const FollowError = ({
   error,
   has404,
@@ -1350,15 +1368,16 @@ const InnerRouter = ({
           transition,
         );
       };
-      if (hasStaticPath(nextRoute.path) || !shouldRefetch) {
-        commitRoute(
-          nextRoute,
-          makeStateForAttempt(initialAttempt, options.history),
-          options.instant ? undefined : options.startTransition,
-        );
-        return;
-      }
       const base = resolvedElementsRef.current;
+      const canInstant =
+        !!options.instant &&
+        shouldRefetch &&
+        !hasStaticPath(nextRoute.path) &&
+        canPaintInstantOverlay(
+          options.follows ?? 0,
+          nextRoute,
+          resolvedElementsRef.current,
+        );
       const fetchRoute = async (
         attempt: NavigationAttempt,
         history: HistoryIntent,
@@ -1463,15 +1482,42 @@ const InnerRouter = ({
           ? { type: 'superseded' }
           : { type: 'landed', attempt, history, elements, instant };
       };
-      const outcome = await fetchRoute(initialAttempt, options.history, false);
+      const outcome = canInstant
+        ? await fetchRoute(initialAttempt, options.history, false)
+        : navigationFromLoad(
+            await load(nextRoute, {
+              signal: controller.signal,
+              refetch: shouldRefetch,
+              has404,
+              settled: settledRoute,
+              base,
+              url: routeUrl,
+              follows: options.follows ?? 0,
+              onBuildIdMismatch: reloadWithUrl,
+              onInvalidate: (url) => {
+                if (!controller.signal.aborted) {
+                  reloadWithUrl(url);
+                }
+              },
+            }),
+            options.history,
+          );
       if (outcome.type === 'superseded') {
         return;
       }
       if (outcome.type === 'reused') {
+        const initialReuse = outcome.attempt.follows === (options.follows ?? 0);
+        let reuseTransition: ChangeRouteOptions['startTransition'] =
+          options.startTransition || startTransition;
+        if (initialReuse) {
+          reuseTransition = options.instant
+            ? undefined
+            : options.startTransition;
+        }
         commitRoute(
           outcome.attempt.route,
           makeStateForAttempt(outcome.attempt, outcome.history),
-          options.startTransition || startTransition,
+          reuseTransition,
         );
         return;
       }
