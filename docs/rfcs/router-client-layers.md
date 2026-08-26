@@ -43,7 +43,7 @@ Navigation API binding may use layer 1 only.
 Split the router client into two layers:
 
 - **Layer 1 — router core.** Engine-agnostic: it does not know how URL
-  changes are detected or committed. Protocol vocabulary, a React-free route
+  changes are detected or committed. Protocol vocabulary, a store-free route
   loader, caches, the host contract, shared components, and the typed hooks.
   This is the layer `waku-navigation` (rewritten) builds on.
 - **Layer 2 — engine bindings.** Waku ships a history/popstate binding
@@ -115,10 +115,17 @@ and `match-route-params.ts` are split so runtime modules carry no upward
 dependency (the types collapse to `string` without user augmentation, as
 today).
 
-### Route loader (client, React-free)
+### Route loader (client, store-free)
 
 The extraction of `changeRoute`'s `fetchRoute` + follow loop + abort
-handling into a plain async function:
+handling into a plain async function. The invariant is **store-free**:
+`load` never calls `mergeElements` and never takes overlay/swr — layer 1
+around it is ordinary React (contract, `Slice`, hooks). That `load` is
+also a plain module function is a consequence, not an axiom: everything
+it needs is non-React (`fetchRsc` is a plain minimal export, caches are
+module state, follow logic is pure), and that plainness is what keeps
+its unit tests rendering-free. Bindings may wrap `load` + commit in a
+convenience hook; the contract is the function.
 
 ```ts
 load(requested: Route, opts: {
