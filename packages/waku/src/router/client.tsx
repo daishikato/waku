@@ -39,11 +39,18 @@ import {
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../minimal/client.js';
-import { decideFollow, isFollowable } from './client-utils/error-route.js';
 import {
   type PrefetchOptions,
-  createPrefetchManager,
-} from './client-utils/prefetch-cache.js';
+  clearCaches,
+  createRscParams,
+  getPrefetch,
+  getPrefetchedElements,
+  hasCachedShell,
+  hasStaticPath,
+  learnStaticFromElements,
+  prefetchRoute as prefetchCachedRoute,
+} from './client-utils/caches.js';
+import { decideFollow, isFollowable } from './client-utils/error-route.js';
 import {
   getRouteUrl,
   isSameRoute,
@@ -52,7 +59,6 @@ import {
 } from './client-utils/route-url.js';
 import {
   ROUTER_STATE_ID,
-  canCommitInstantly,
   getRouteFromElements,
   getRouterState,
   getSettledRoute,
@@ -244,17 +250,6 @@ const isAltClick = (event: MouseEvent<HTMLAnchorElement>) =>
   event.button !== 0 ||
   !!(event.metaKey || event.altKey || event.ctrlKey || event.shiftKey);
 
-let savedRscParams: [query: string, rscParams: URLSearchParams] | undefined;
-
-const createRscParams = (query: string): URLSearchParams => {
-  if (savedRscParams && savedRscParams[0] === query) {
-    return savedRscParams[1];
-  }
-  const rscParams = new URLSearchParams({ query });
-  savedRscParams = [query, rscParams];
-  return rscParams;
-};
-
 type ChangeRouteOptions = {
   shouldScroll: boolean;
   refetch?: boolean; // true: force refetch, false: don't refetch, undefined: auto-decide based on route change
@@ -338,12 +333,9 @@ const useResolveSearchCodec = () => {
 
 const canPaintInstantOverlay = (
   follows: number,
-  routeSlotId: string,
+  route: RouteProps,
   resolvedElements: Record<string, unknown>,
-  prefetchedElements: Record<string, unknown> | null | undefined,
-) =>
-  !follows &&
-  canCommitInstantly(routeSlotId, resolvedElements, prefetchedElements);
+) => !follows && hasCachedShell(route, resolvedElements);
 
 const dispatchChangeRoute = (
   changeRoute: ChangeRoute,
@@ -1141,29 +1133,14 @@ const InnerRouter = ({
   const [initialRoute] = useState(() => ({ ...resolvedRoute, hash: '' }));
 
   const has404 = has404FromElements(elements);
-  const staticPathSetRef = useRef<Set<string>>(undefined);
-  staticPathSetRef.current ??= new Set();
-  // a record mid navigation pairs the new route id with the old static flag
-  const addToStaticPathSet = useCallback(
-    (responseElements: Record<string, unknown>) => {
-      const route = getRouteFromElements(responseElements);
-      if (route && isStaticFromElements(responseElements)) {
-        staticPathSetRef.current!.add(route.path);
-      }
-    },
-    [],
-  );
   const initialElementsRef = useRef(elements);
   useEffect(() => {
-    addToStaticPathSet(initialElementsRef.current);
-  }, [addToStaticPathSet]);
+    learnStaticFromElements(initialElementsRef.current);
+  }, []);
   const resolvedElementsRef = useRef(elements);
   useLayoutEffect(() => {
     resolvedElementsRef.current = elements;
   }, [elements]);
-  const prefetchManagerRef =
-    useRef<ReturnType<typeof createPrefetchManager>>(undefined);
-  prefetchManagerRef.current ??= createPrefetchManager();
 
   const refetch = useRefetch();
   const mergeElements = useMergeElements();
@@ -1210,7 +1187,7 @@ const InnerRouter = ({
   useLayoutEffect(() => {
     const queuedState = pendingNavigationRef.current?.queuedState;
     if (queuedState && queuedState === routerState) {
-      addToStaticPathSet(elements);
+      learnStaticFromElements(elements);
       pendingNavigationRef.current = null;
     }
     if (!routerState || !destinationHref) {
@@ -1228,7 +1205,7 @@ const InnerRouter = ({
     const { pathChanged } = routerState.scroll;
     const behavior = pathChanged ? 'instant' : 'auto';
     scrollToHash(currentHash, behavior, pathChanged);
-  }, [elements, routerState, destinationHref, currentHash, addToStaticPathSet]);
+  }, [elements, routerState, destinationHref, currentHash]);
 
   const cancelPendingNavigation = useCallback(() => {
     const pendingNavigation = pendingNavigationRef.current;
@@ -1249,8 +1226,7 @@ const InnerRouter = ({
     if (import.meta.hot) {
       const refetchRouteOnHmr = () => {
         cancelPendingNavigation();
-        prefetchManagerRef.current!.clear();
-        staticPathSetRef.current!.clear();
+        clearCaches();
         const settledRoute = getSettledRoute(
           resolvedElementsRef.current,
           routeFallback,
@@ -1260,7 +1236,7 @@ const InnerRouter = ({
           void refetch(
             encodeRoutePath(settledRoute.path),
             createRscParams(settledRoute.query),
-          ).then(addToStaticPathSet, () => {});
+          ).then(learnStaticFromElements, () => {});
           lazySliceIds.forEach((id) => {
             fetchSlice(id, mergeElements, fetchingSlices, { replace: true });
           });
@@ -1270,7 +1246,6 @@ const InnerRouter = ({
     }
   }, [
     refetch,
-    addToStaticPathSet,
     routeFallback,
     cancelPendingNavigation,
     lazySliceIds,
@@ -1291,14 +1266,11 @@ const InnerRouter = ({
       if (
         options.pendingTransition &&
         shouldRefetch &&
-        !staticPathSetRef.current!.has(nextRoute.path) &&
+        !hasStaticPath(nextRoute.path) &&
         !canPaintInstantOverlay(
           options.follows ?? 0,
-          getRouteSlotId(nextRoute.path),
+          nextRoute,
           resolvedElementsRef.current,
-          prefetchManagerRef.current!.getElements(
-            encodeRoutePath(nextRoute.path),
-          ),
         )
       ) {
         const schedule = options.pendingTransition;
@@ -1378,7 +1350,7 @@ const InnerRouter = ({
           transition,
         );
       };
-      if (staticPathSetRef.current!.has(nextRoute.path) || !shouldRefetch) {
+      if (hasStaticPath(nextRoute.path) || !shouldRefetch) {
         commitRoute(
           nextRoute,
           makeStateForAttempt(initialAttempt, options.history),
@@ -1392,28 +1364,23 @@ const InnerRouter = ({
         history: HistoryIntent,
         restoreBase: boolean,
       ): Promise<NavigationOutcome> => {
-        if (
-          attempt.follows > 0 &&
-          staticPathSetRef.current!.has(attempt.route.path)
-        ) {
+        if (attempt.follows > 0 && hasStaticPath(attempt.route.path)) {
           return { type: 'reused', attempt, history };
         }
         const rscPath = encodeRoutePath(attempt.route.path);
-        const prefetchManager = prefetchManagerRef.current!;
-        const cached = prefetchManager.get(rscPath, attempt.route.query);
+        const cached = getPrefetch(attempt.route);
         cached?.onInvalidate(() => {
           if (!controller.signal.aborted) {
             reloadWithUrl(attempt.url);
           }
         });
-        const prefetchedElements = prefetchManager.getElements(rscPath);
+        const prefetchedElements = getPrefetchedElements(attempt.route);
         const instant =
           !!options.instant &&
           canPaintInstantOverlay(
             attempt.follows,
-            getRouteSlotId(attempt.route.path),
+            attempt.route,
             resolvedElementsRef.current,
-            prefetchedElements,
           );
         const rscParams = createRscParams(attempt.route.query);
         let elements: Elements;
@@ -1551,7 +1518,7 @@ const InnerRouter = ({
       }
       const { attempt, elements } = outcome;
       if (outcome.instant) {
-        addToStaticPathSet(elements);
+        learnStaticFromElements(elements);
         pendingNavigationRef.current = null;
         return;
       }
@@ -1603,14 +1570,7 @@ const InnerRouter = ({
         options.startTransition || startTransition,
       );
     },
-    [
-      routeFallback,
-      refetch,
-      mergeElements,
-      addToStaticPathSet,
-      cancelPendingNavigation,
-      has404,
-    ],
+    [routeFallback, refetch, mergeElements, cancelPendingNavigation, has404],
   );
 
   const changeRouteFromServer = useCallback(
@@ -1643,7 +1603,7 @@ const InnerRouter = ({
   );
   useEffect(() => {
     const listener = (elements: Record<string, unknown>) => {
-      addToStaticPathSet(elements);
+      learnStaticFromElements(elements);
       const { [ROUTE_ID]: routeData, [IS_STATIC_ID]: isStatic } = elements;
       changeRouteFromServer(routeData, isStatic).catch((err) => {
         if (!isFollowable(err)) {
@@ -1652,28 +1612,11 @@ const InnerRouter = ({
       });
     };
     return registerCallServerElementsListener(listener);
-  }, [changeRouteFromServer, addToStaticPathSet]);
+  }, [changeRouteFromServer]);
 
   const prefetchRoute: PrefetchRoute = useCallback((route, options) => {
     preloadRouteModules(route.path);
-    if (staticPathSetRef.current!.has(route.path)) {
-      return;
-    }
-    const rscPath = encodeRoutePath(route.path);
-    const prefetchManager = prefetchManagerRef.current!;
-    prefetchManager.prefetch(
-      rscPath,
-      route.query,
-      (base, invalidate) =>
-        fetchRsc(rscPath, createRscParams(route.query), {
-          ...(base ? { unstable_base: base } : {}),
-          onBuildIdMismatch: () => {
-            invalidate();
-            prefetchManager.clear();
-          },
-        }),
-      options,
-    );
+    prefetchCachedRoute(route, options);
   }, []);
 
   useEffect(() => {
