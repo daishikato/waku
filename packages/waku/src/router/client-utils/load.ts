@@ -43,6 +43,8 @@ export type LoadOutcome =
     }
   | { type: 'aborted' };
 
+export type Loaded = Extract<LoadOutcome, { type: 'loaded' }>;
+
 export type LoadOptions = {
   signal: AbortSignal;
   refetch?: boolean;

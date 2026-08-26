@@ -25,7 +25,6 @@ import type {
   TransitionFunction,
 } from 'react';
 import { preloadModule } from 'react-dom';
-import { ETAG_ID_PREFIX } from '../lib/utils/etags.js';
 import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
@@ -58,6 +57,7 @@ import {
   load,
 } from './client-utils/load.js';
 import type { LoadOutcome } from './client-utils/load.js';
+import { buildMergePatch } from './client-utils/merge-patch.js';
 import {
   getRouteUrl,
   isSameRoute,
@@ -1582,35 +1582,16 @@ const InnerRouter = ({
       commit(
         finalState,
         () => {
-          const current = resolvedElementsRef.current;
-          const update: Elements = {};
-          const responseRoute =
-            getRouteFromElements(elements) ?? destination.route;
-          const routeSlotId = getRouteSlotId(responseRoute.path);
-          const routeEtagId = ETAG_ID_PREFIX + routeSlotId;
-          const rscRouteChanged = !isSameRscRoute(responseRoute, settledRoute);
-          // A server action can merge newer values while this request waits.
-          for (const [key, value] of Object.entries(elements)) {
-            if (
-              (rscRouteChanged &&
-                (key === routeSlotId || key === routeEtagId)) ||
-              (Object.hasOwn(current, key) === Object.hasOwn(base, key) &&
-                current[key] === base[key])
-            ) {
-              update[key] = value;
-            }
-          }
-          Object.assign(update, {
-            ...(ROUTE_ID in elements ? { [ROUTE_ID]: elements[ROUTE_ID] } : {}),
-            ...(HAS404_ID in elements
-              ? { [HAS404_ID]: elements[HAS404_ID] }
-              : {}),
-            ...(IS_STATIC_ID in elements
-              ? { [IS_STATIC_ID]: elements[IS_STATIC_ID] }
-              : {}),
+          const patch = buildMergePatch(
+            { route: attempt.route, elements },
+            resolvedElementsRef.current,
+            base,
+            { settled: settledRoute },
+          );
+          void mergeElements({
+            ...patch,
             [ROUTER_STATE_ID]: finalState,
           });
-          void mergeElements(update);
         },
         options.startTransition || startTransition,
       );
