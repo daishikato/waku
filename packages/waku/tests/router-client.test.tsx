@@ -32,7 +32,10 @@ import {
   clearCaches,
   clearRegisteredLazySlices,
 } from '../src/router/client-utils/caches.js';
-import { RouterHostContext } from '../src/router/client-utils/host.js';
+import {
+  RouterHostContext,
+  useRouterHost,
+} from '../src/router/client-utils/host.js';
 import { PREFETCH_LIMIT } from '../src/router/client-utils/prefetch-cache.js';
 import {
   getInFlightSliceCount,
@@ -1752,6 +1755,27 @@ describe('Router integration', () => {
     expect(initialParams!.get('query')).toBe('a=1');
     expect(capture.router?.hash).toBe('#hash');
 
+    view.unmount();
+  });
+
+  test('Router provides a host whose own keys are exactly route and navigate', async () => {
+    const capture = { keys: undefined as PropertyKey[] | undefined };
+    const Probe = () => {
+      capture.keys = Reflect.ownKeys(useRouterHost());
+      return null;
+    };
+
+    const view = await renderRouter(
+      {
+        initialRoute: { path: '/start', query: '', hash: '' },
+      },
+      {
+        [unstable_getRouteSlotId('/start')]: <Probe />,
+        [ROUTE_ID]: ['/start', ''],
+      },
+    );
+
+    expect(capture.keys).toEqual(['route', 'navigate']);
     view.unmount();
   });
 
