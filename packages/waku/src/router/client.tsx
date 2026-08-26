@@ -55,6 +55,8 @@ import {
   isStaticFromElements,
 } from './client-utils/element-meta.js';
 import { decideFollow, isFollowable } from './client-utils/error-route.js';
+import { RouterHostContext } from './client-utils/host.js';
+import type { RouterHost } from './client-utils/host.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   abortable,
@@ -1647,6 +1649,22 @@ const InnerRouter = ({
     prefetchCachedRoute(route, options);
   }, []);
 
+  const navigate = useCallback<RouterHost['navigate']>(
+    (href, opts) => {
+      const url = new URL(href, window.location.href);
+      return dispatchChangeRoute(changeRoute, parseRoute(url), {
+        shouldScroll: opts.scroll ?? shouldScrollByDefault(url),
+        history: opts.history,
+        url,
+      });
+    },
+    [changeRoute],
+  );
+  const host = useMemo(
+    (): RouterHost => ({ route: currentRoute, navigate }),
+    [currentRoute, navigate],
+  );
+
   useEffect(() => {
     const callback = () => {
       const popped = parseRoute(new URL(window.location.href));
@@ -1702,7 +1720,7 @@ const InnerRouter = ({
         lazySliceIds,
       }}
     >
-      {rootElement}
+      <RouterHostContext value={host}>{rootElement}</RouterHostContext>
     </RouterContext>
   );
 };
@@ -1741,19 +1759,24 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
   const routeElement = <Slot id={getRouteSlotId(route.path)} />;
   const rootElement = <Slot id="root">{routeElement}</Slot>;
   return (
-    <>
-      <RouterContext
+    <RouterContext
+      value={{
+        route,
+        changeRoute: notAvailableInServer('changeRoute'),
+        prefetchRoute: notAvailableInServer('prefetchRoute'),
+        fetchingSlices: new Map<SliceId, Promise<Elements>>(),
+        lazySliceIds: new Set<SliceId>(),
+      }}
+    >
+      <RouterHostContext
         value={{
           route,
-          changeRoute: notAvailableInServer('changeRoute'),
-          prefetchRoute: notAvailableInServer('prefetchRoute'),
-          fetchingSlices: new Map<SliceId, Promise<Elements>>(),
-          lazySliceIds: new Set<SliceId>(),
+          navigate: notAvailableInServer('navigate'),
         }}
       >
         {rootElement}
-      </RouterContext>
-    </>
+      </RouterHostContext>
+    </RouterContext>
   );
 }
 
