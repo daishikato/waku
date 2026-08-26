@@ -403,14 +403,20 @@ follow-ups, so a debate on any of them never blocks the structural work.
    capabilities.
 2. **Loader** — extract `fetchRoute` + follow + abort into `load()` with
    `LoadOutcome`; `changeRoute` becomes its first consumer for
-   non-instant navigation. `adopt` lands on the signature with its
-   one-writer unit tests but **unused**: the instant path keeps its
+   non-instant navigation. **The initial static / no-refetch fast path
+   stays in the binding, before any `await`**: its commit must execute
+   inside the caller's transition scope, which an `await` drops (the
+   React `startTransition` caveat) — loading is async, commit scheduling
+   is sync. `load()`'s own first-attempt reuse serves follow attempts
+   and the future `adopt` path only. `adopt` lands on the signature with
+   its one-writer unit tests but **unused**: the instant path keeps its
    current interleaved mechanism until the rebuild (step 6), `adopt`'s
    first production caller. The accepted cost is a temporary second copy
    of follow handling for instant inside `changeRoute` — the extract's
    behavior-identical promise outranks the interim duplication.
    Commit-time redirect resolution stays put. Loader gains direct unit
-   tests (no rendering).
+   tests (no rendering), and the server-action route-change path
+   (`refetch: false`) gains a test pinning its synchronous commit.
 3. **Merge-patch builder** — extract commit reconciliation.
 4. **Contract slim** — `RouterContext` → `{ route, navigate }`; `Slice`
    via `registerLazySlice`; typed hooks rebind to the contract. Instant
