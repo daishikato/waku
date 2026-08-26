@@ -1843,6 +1843,34 @@ describe('Router integration', () => {
     }
   });
 
+  test('a server function route update commits synchronously in the dispatch', async () => {
+    const view = await renderRouter(
+      { initialRoute: { path: '/start', query: '', hash: '' } },
+      {
+        [unstable_getRouteSlotId('/start')]: <div>start</div>,
+        [unstable_getRouteSlotId('/next')]: <div>next</div>,
+        [ROUTE_ID]: ['/start', ''],
+        [IS_STATIC_ID]: false,
+      },
+    );
+    try {
+      const store = fetchRscStore as unknown as Record<string, unknown>;
+      const listeners = store.l as Set<
+        (elements: Record<string, unknown>) => void
+      >;
+      expect(listeners.size).toBe(1);
+      testHoisted.mergeTypes.length = 0;
+      await act(async () => {
+        for (const listener of listeners) {
+          listener({ [ROUTE_ID]: ['/next', ''], [IS_STATIC_ID]: false });
+        }
+        expect(testHoisted.mergeTypes).toEqual(['sync']);
+      });
+    } finally {
+      view.unmount();
+    }
+  });
+
   test('a server function update for the settled route does not navigate', async () => {
     window.history.replaceState({}, '', '/start#section');
     const capture = { router: null as RouterApi | null };
