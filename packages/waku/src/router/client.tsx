@@ -49,6 +49,11 @@ import {
   learnStaticFromElements,
   prefetchRoute as prefetchCachedRoute,
 } from './client-utils/caches.js';
+import {
+  getRouteFromElements,
+  has404FromElements,
+  isStaticFromElements,
+} from './client-utils/element-meta.js';
 import { decideFollow, isFollowable } from './client-utils/error-route.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
@@ -66,11 +71,8 @@ import {
 } from './client-utils/route-url.js';
 import {
   ROUTER_STATE_ID,
-  getRouteFromElements,
   getRouterState,
   getSettledRoute,
-  has404FromElements,
-  isStaticFromElements,
   makeRouterState,
   pinForSwr,
   resolveServerRedirect,
