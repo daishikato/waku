@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ETAG_ID_PREFIX } from '../src/lib/utils/etags.js';
-import { buildMergePatch } from '../src/router/client-utils/merge-patch.js';
+import { buildMergePatch } from '../src/router/core-utils/merge-patch.js';
 import { ROUTER_STATE_ID } from '../src/router/client-utils/router-state.js';
 import {
   HAS404_ID,

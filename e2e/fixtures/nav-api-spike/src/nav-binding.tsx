@@ -13,39 +13,25 @@ import {
 import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
-  unstable_removeBase as removeBase,
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from 'waku/minimal/client';
-// dist, not src: same module instance as waku/router/client
 import {
-  createRscParams,
-  learnStaticFromElements,
-  prefetchRoute,
-} from '../../../../packages/waku/dist/router/client-utils/caches.js';
-import {
-  getRouteFromElements,
-  has404FromElements,
-} from '../../../../packages/waku/dist/router/client-utils/element-meta.js';
-import { RouterHostContext } from '../../../../packages/waku/dist/router/client-utils/host.js';
-import type { RouterHost } from '../../../../packages/waku/dist/router/client-utils/host.js';
-import { load } from '../../../../packages/waku/dist/router/client-utils/load.js';
-import { buildMergePatch } from '../../../../packages/waku/dist/router/client-utils/merge-patch.js';
-import { useInitialRoute } from '../../../../packages/waku/dist/router/client-utils/route-state-hooks.js';
-import {
-  encodeRoutePath,
-  getRouteSlotId,
-  pathnameToRoutePath,
-} from '../../../../packages/waku/dist/router/isomorphic-utils/route-path.js';
-import type { RouteProps } from '../../../../packages/waku/dist/router/isomorphic-utils/route-path.js';
-
-const parseUrl = (url: URL): RouteProps => ({
-  path: pathnameToRoutePath(
-    removeBase(url.pathname, import.meta.env.WAKU_CONFIG_BASE_PATH),
-  ),
-  query: url.searchParams.toString(),
-  hash: url.hash,
-});
+  type Unstable_RouteProps as RouteProps,
+  type Unstable_RouterHost as RouterHost,
+  unstable_RouterHostContext as RouterHostContext,
+  unstable_buildMergePatch as buildMergePatch,
+  unstable_createRscParams as createRscParams,
+  unstable_encodeRoutePath as encodeRoutePath,
+  unstable_getRouteFromElements as getRouteFromElements,
+  unstable_getRouteSlotId as getRouteSlotId,
+  unstable_has404FromElements as has404FromElements,
+  unstable_learnStaticFromElements as learnStaticFromElements,
+  unstable_load as load,
+  unstable_parseRoute as parseRoute,
+  unstable_prefetchRoute as prefetchRoute,
+  unstable_useInitialRoute as useInitialRoute,
+} from 'waku/router/core';
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   const elements = use(useElementsPromise());
@@ -100,8 +86,8 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       if (dest.origin !== window.location.origin) {
         return;
       }
-      const next = parseUrl(dest);
-      const current = parseUrl(new URL(window.location.href));
+      const next = parseRoute(dest);
+      const current = parseRoute(new URL(window.location.href));
       if (next.path === current.path && next.query === current.query) {
         return;
       }
@@ -134,7 +120,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
 };
 
 export const NavRouter = () => {
-  const [fallback] = useState(() => parseUrl(new URL(window.location.href)));
+  const [fallback] = useState(() => parseRoute(new URL(window.location.href)));
   return (
     <Root
       initialRscPath={encodeRoutePath(fallback.path)}

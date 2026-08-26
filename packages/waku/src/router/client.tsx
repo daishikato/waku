@@ -38,39 +38,6 @@ import {
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../minimal/client.js';
 import {
-  type PrefetchOptions,
-  createRscParams,
-  getPrefetch,
-  getPrefetchedElements,
-  hasCachedShell,
-  hasStaticPath,
-  learnStaticFromElements,
-  prefetchRoute as prefetchCachedRoute,
-} from './client-utils/caches.js';
-import {
-  has404FromElements,
-  isStaticFromElements,
-} from './client-utils/element-meta.js';
-import { decideFollow, isFollowable } from './client-utils/error-route.js';
-import { RouterHostContext, useRouterHost } from './client-utils/host.js';
-import type { RouterHost } from './client-utils/host.js';
-import {
-  MAX_FOLLOWS_PER_NAVIGATION,
-  abortable,
-  load,
-} from './client-utils/load.js';
-import { buildMergePatch } from './client-utils/merge-patch.js';
-import {
-  useHmrRefetch,
-  useInitialRoute,
-} from './client-utils/route-state-hooks.js';
-import {
-  getRouteUrl,
-  isSameRoute,
-  isSameRscRoute,
-  parseRoute,
-} from './client-utils/route-url.js';
-import {
   ROUTER_STATE_ID,
   getRouterState,
   getSettledRoute,
@@ -80,11 +47,45 @@ import {
 } from './client-utils/router-state.js';
 import type { RouterState } from './client-utils/router-state.js';
 import {
+  type PrefetchOptions,
+  createRscParams,
+  getPrefetch,
+  getPrefetchedElements,
+  hasCachedShell,
+  hasStaticPath,
+  learnStaticFromElements,
+  prefetchRoute as prefetchCachedRoute,
+} from './core-utils/caches.js';
+import {
+  has404FromElements,
+  isStaticFromElements,
+} from './core-utils/element-meta.js';
+import { decideFollow, isFollowable } from './core-utils/error-route.js';
+import { RouterHostContext } from './core-utils/host.js';
+import type { RouterHost } from './core-utils/host.js';
+import {
+  MAX_FOLLOWS_PER_NAVIGATION,
+  abortable,
+  load,
+} from './core-utils/load.js';
+import { buildMergePatch } from './core-utils/merge-patch.js';
+import { useResolveSearchCodec } from './core-utils/route-hooks.js';
+import {
+  useHmrRefetch,
+  useInitialRoute,
+} from './core-utils/route-state-hooks.js';
+import {
+  getRouteUrl,
+  isSameRoute,
+  isSameRscRoute,
+  parseRoute,
+} from './core-utils/route-url.js';
+import {
   scrollToHash,
   shouldScrollByDefault,
   shouldScrollForRouteChange,
-} from './client-utils/scroll.js';
-import type { SliceId } from './client-utils/slice.js';
+} from './core-utils/scroll.js';
+import type { SliceId } from './core-utils/slice.js';
 import type {
   RouteParams,
   RouteSearch,
@@ -106,11 +107,6 @@ import {
   getSliceSlotId,
 } from './isomorphic-utils/route-path.js';
 import type { RouteProps } from './isomorphic-utils/route-path.js';
-import {
-  type AnyCodec,
-  getRouteSearchCodecId,
-  isCodec,
-} from './isomorphic-utils/search-codec-registry.js';
 
 type NavigateOptions = {
   /**
@@ -248,21 +244,6 @@ const RouterContext = createContext<{
   route: RouteProps;
   changeRoute: ChangeRoute;
 } | null>(null);
-
-const SearchCodecsContext = createContext<ReadonlyMap<string, AnyCodec>>(
-  new Map(),
-);
-
-const useResolveSearchCodec = () => {
-  const codecs = useContext(SearchCodecsContext);
-  return useCallback(
-    (routePath: string): AnyCodec | undefined => {
-      const id = getRouteSearchCodecId(routePath);
-      return id !== undefined ? codecs.get(id) : undefined;
-    },
-    [codecs],
-  );
-};
 
 const canPaintInstantOverlay = (
   follows: number,
@@ -403,128 +384,12 @@ export function useRouter() {
   };
 }
 
-/**
- * Read the current route's params, typed from the `from` path, or null when
- * the current path does not match it. Re-renders when the route path changes.
- * The result is memoized by path, so its identity changes on navigation to a
- * different path; read its fields rather than using the object itself as an
- * effect dependency.
- */
-export function useParams_UNSTABLE<Path extends RoutePath>({
-  from,
-}: {
-  from: Path;
-}): RouteParams<Path> | null {
-  const { route } = useRouterHost();
-  return useMemo(() => matchRouteParams(from, route.path), [from, route.path]);
-}
-
-/**
- * Provide search codecs to `useSearch_UNSTABLE`, `useSetSearch_UNSTABLE`,
- * `push`, and `Link`. Render it in your root layout so the codecs are present in
- * both the SSR render and the browser. Pass only search codecs: a codec-only
- * module (via `import * as`), a record, or an array. A value that is not a codec
- * is ignored with a warning, so keep helpers and constants out of the module you
- * pass (or list the codecs explicitly).
- */
-export function Unstable_SearchCodecsProvider({
-  searchCodecs,
-  children,
-}: {
-  searchCodecs: Record<string, unknown> | readonly unknown[];
-  children: ReactNode;
-}): ReactElement {
-  const codecs = useMemo(() => {
-    const map = new Map<string, AnyCodec>();
-    const values = Array.isArray(searchCodecs)
-      ? searchCodecs
-      : Object.values(searchCodecs);
-    for (const value of values) {
-      if (!isCodec(value)) {
-        console.warn(
-          'Unstable_SearchCodecsProvider ignored a value that is not a search codec; pass only codecs (a codec-only module or an explicit array).',
-          value,
-        );
-        continue;
-      }
-      const existing = map.get(value.id);
-      if (existing && existing !== value) {
-        throw new Error(`Duplicate search codec id: "${value.id}"`);
-      }
-      map.set(value.id, value);
-    }
-    return map;
-  }, [searchCodecs]);
-  return <SearchCodecsContext value={codecs}>{children}</SearchCodecsContext>;
-}
-
-/**
- * Read the current route's typed `search`, parsed client-side with the route's
- * codec (provided via `Unstable_SearchCodecsProvider`), or null when the current
- * path does not match `from` or the route has no codec. Re-renders when the
- * query changes.
- */
-export function useSearch_UNSTABLE<Path extends RoutePath>({
-  from,
-}: {
-  from: Path;
-}): RouteSearch<Path> | null {
-  const { route } = useRouterHost();
-  const codecs = useContext(SearchCodecsContext);
-  return useMemo(() => {
-    if (matchRouteParams(from, route.path) === null) {
-      return null;
-    }
-    const codecId = getRouteSearchCodecId(from);
-    const codec = codecId !== undefined ? codecs.get(codecId) : undefined;
-    return codec ? (codec.parse(route.query) as RouteSearch<Path>) : null;
-  }, [from, route.path, route.query, codecs]);
-}
-
-type SetSearch<Path extends RoutePath> = (
-  update:
-    | Partial<RouteSearch<Path>>
-    | ((prev: RouteSearch<Path>) => Partial<RouteSearch<Path>>),
-  options?: { history?: 'push' | 'replace'; scroll?: boolean },
-) => Promise<void>;
-
-/**
- * Returns a setter for the current route's `search`, serialized client-side with
- * the route's codec (provided via `Unstable_SearchCodecsProvider`). Accepts a
- * partial or an updater of the current search and navigates (push by default, or
- * replace) to the same path. A no-op when the current path does not match `from`
- * or has no codec.
- */
-export function useSetSearch_UNSTABLE<Path extends RoutePath>({
-  from,
-}: {
-  from: Path;
-}): SetSearch<Path> {
-  const { route, navigate } = useRouterHost();
-  const codecs = useContext(SearchCodecsContext);
-  return useCallback<SetSearch<Path>>(
-    async (update, options) => {
-      if (matchRouteParams(from, route.path) === null) {
-        return;
-      }
-      const codecId = getRouteSearchCodecId(from);
-      const codec = codecId !== undefined ? codecs.get(codecId) : undefined;
-      if (!codec) {
-        return;
-      }
-      const prev = codec.parse(route.query) as RouteSearch<Path>;
-      const partial = typeof update === 'function' ? update(prev) : update;
-      const nextQuery = codec.serialize({ ...prev, ...partial });
-      const url = new URL(window.location.href);
-      url.search = nextQuery;
-      await navigate(`${url.pathname}${url.search}${url.hash}`, {
-        history: options?.history ?? 'push',
-        scroll: options?.scroll ?? false,
-      });
-    },
-    [from, route.path, route.query, codecs, navigate],
-  );
-}
+export {
+  Unstable_SearchCodecsProvider,
+  useParams_UNSTABLE,
+  useSearch_UNSTABLE,
+  useSetSearch_UNSTABLE,
+} from './core-utils/route-hooks.js';
 
 // HACK: commit-phase .current write; extracted so react-hooks/immutability ignores it.
 const assignRef = <T,>(ref: RefObject<T | null>, node: T | null): void => {
@@ -756,56 +621,6 @@ const notAvailableInServer = (name: string) => () => {
   throw new Error(`${name} is not in the server`);
 };
 
-function renderError(message: string) {
-  return (
-    <html>
-      <head>
-        <title>Unhandled Error</title>
-      </head>
-      <body
-        style={{
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          placeContent: 'center',
-          placeItems: 'center',
-          fontSize: '16px',
-          margin: 0,
-        }}
-      >
-        <h1>Caught an unexpected error</h1>
-        <p>Error: {message}</p>
-      </body>
-    </html>
-  );
-}
-
-/**
- * Catches errors from its children and shows a fallback page. Used by the
- * default root layout; apps can wrap their own root with it too.
- */
-export class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { error?: unknown }
-> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = {};
-  }
-  static getDerivedStateFromError(error: unknown) {
-    return { error };
-  }
-  render() {
-    if ('error' in this.state) {
-      if (this.state.error instanceof Error) {
-        return renderError(this.state.error.message);
-      }
-      return renderError(String(this.state.error));
-    }
-    return this.props.children;
-  }
-}
-
 const FollowError = ({
   error,
   has404,
@@ -977,7 +792,8 @@ const preloadRouteModules = (path: string) => {
   });
 };
 
-export { Slice } from './client-utils/slice.js';
+export { ErrorBoundary } from './core-utils/error-boundary.js';
+export { Slice } from './core-utils/slice.js';
 
 const InnerRouter = ({
   fallbackRoute,
@@ -1509,31 +1325,57 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
   );
 }
 
-// Internal APIs exposed for other Waku packages and integrations.
-// Subject to change without notice.
+// Grab-bag kept so existing imports compile. L1 symbols belong on
+// `waku/router/core`; removal is a later maintainer decision.
+
+/** @deprecated Import `Unstable_RouteProps` from `waku/router/core`. */
 export type Unstable_RouteProps = RouteProps;
+/** @deprecated Import `unstable_HAS404_ID` from `waku/router/core`. */
 export const unstable_HAS404_ID = HAS404_ID;
+/** @deprecated Import `unstable_IS_STATIC_ID` from `waku/router/core`. */
 export const unstable_IS_STATIC_ID = IS_STATIC_ID;
+/** @deprecated Import `unstable_ROUTE_ID` from `waku/router/core`. */
 export const unstable_ROUTE_ID = ROUTE_ID;
+/** @deprecated Import `unstable_encodeRoutePath` from `waku/router/core`. */
 export const unstable_encodeRoutePath = encodeRoutePath;
+/** @deprecated Import `unstable_encodeSliceId` from `waku/router/core`. */
 export const unstable_encodeSliceId = encodeSliceId;
+/** @deprecated Import `unstable_getRouteSlotId` from `waku/router/core`. */
 export const unstable_getRouteSlotId = getRouteSlotId;
+/** @deprecated Import `unstable_getSliceSlotId` from `waku/router/core`. */
 export const unstable_getSliceSlotId = getSliceSlotId;
+/** @deprecated Import `unstable_getErrorInfo` from `waku/minimal/client`. */
 export const unstable_getErrorInfo = getErrorInfo;
+/** @deprecated Import `unstable_addBase` from `waku/minimal/client`. */
 export const unstable_addBase = addBase;
+/** @deprecated Import `unstable_removeBase` from `waku/minimal/client`. */
 export const unstable_removeBase = removeBase;
+/** @deprecated History-binding private; not on `waku/router/core`. */
 export const unstable_RouterContext = RouterContext;
+/** @deprecated History-binding private; not on `waku/router/core`. */
 export type Unstable_ChangeRoute = ChangeRoute;
+/** @deprecated Import `unstable_prefetchRoute` from `waku/router/core`. */
 export type Unstable_PrefetchRoute = PrefetchRoute;
+/** @deprecated Import `Unstable_PrefetchOptions` from `waku/router/core`. */
 export type Unstable_PrefetchOptions = PrefetchOptions;
+/** @deprecated Import `Unstable_SliceId` from `waku/router/core`. */
 export type Unstable_SliceId = SliceId;
+/** @deprecated Import `Unstable_RouteHref` from `waku/router/core`. */
 export type Unstable_RouteHref = RouteHref;
+/** @deprecated Import `Unstable_RoutePath` from `waku/router/core`. */
 export type Unstable_RoutePath = RoutePath;
+/** @deprecated Import `Unstable_BuildRouteHrefTarget` from `waku/router/core`. */
 export type Unstable_BuildRouteHrefTarget<Path extends RoutePath> =
   BuildRouteHrefTarget<Path>;
+/** @deprecated Import `Unstable_RouteParams` from `waku/router/core`. */
 export type Unstable_RouteParams<Path extends RoutePath> = RouteParams<Path>;
+/** @deprecated Import `Unstable_RouteSearch` from `waku/router/core`. */
 export type Unstable_RouteSearch<Path extends RoutePath> = RouteSearch<Path>;
+/** @deprecated Import `unstable_buildRouteHref` from `waku/router/core`. */
 export const unstable_buildRouteHref = buildRouteHref;
+/** @deprecated Import `unstable_matchRouteParams` from `waku/router/core`. */
 export const unstable_matchRouteParams = matchRouteParams;
+/** @deprecated Import `unstable_useResolveSearchCodec` from `waku/router/core`. */
 export const unstable_useResolveSearchCodec = useResolveSearchCodec;
+/** @deprecated Import `unstable_parseRoute` from `waku/router/core`. */
 export const unstable_parseRoute = parseRoute;

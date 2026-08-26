@@ -2,13 +2,13 @@
 // element-meta.ts.
 
 import { unstable_isImmutableElement as isImmutableElement } from '../../minimal/client.js';
-import type { RouteProps } from '../isomorphic-utils/route-path.js';
 import {
   getRouteFromElements,
   isMetaKey,
   isStaticFromElements,
-} from './element-meta.js';
-import { getRouteUrl } from './route-url.js';
+} from '../core-utils/element-meta.js';
+import { getRouteUrl } from '../core-utils/route-url.js';
+import type { RouteProps } from '../isomorphic-utils/route-path.js';
 
 // the client owned router state; the server's ROUTE_ID owns the path
 export const ROUTER_STATE_ID = Symbol('waku-router-state');

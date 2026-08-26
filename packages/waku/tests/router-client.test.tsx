@@ -28,20 +28,20 @@ import {
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
-import * as routerCaches from '../src/router/client-utils/caches.js';
+import * as routerCaches from '../src/router/core-utils/caches.js';
 import {
   clearCaches,
   clearRegisteredLazySlices,
-} from '../src/router/client-utils/caches.js';
+} from '../src/router/core-utils/caches.js';
 import {
   RouterHostContext,
   useRouterHost,
-} from '../src/router/client-utils/host.js';
-import { PREFETCH_LIMIT } from '../src/router/client-utils/prefetch-cache.js';
+} from '../src/router/core-utils/host.js';
+import { PREFETCH_LIMIT } from '../src/router/core-utils/prefetch-cache.js';
 import {
   getInFlightSliceCount,
   resetSliceFetches,
-} from '../src/router/client-utils/slice.js';
+} from '../src/router/core-utils/slice.js';
 import {
   ErrorBoundary,
   INTERNAL_ServerRouter,

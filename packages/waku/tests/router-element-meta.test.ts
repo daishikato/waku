@@ -6,7 +6,7 @@ import {
   has404FromElements,
   isMetaKey,
   isStaticFromElements,
-} from '../src/router/client-utils/element-meta.js';
+} from '../src/router/core-utils/element-meta.js';
 import {
   HAS404_ID,
   IS_STATIC_ID,

@@ -14,7 +14,7 @@ import {
   learnStaticFromElements,
   prefetchRoute,
   registerLazySlice,
-} from '../src/router/client-utils/caches.js';
+} from '../src/router/core-utils/caches.js';
 import {
   IS_STATIC_ID,
   ROUTE_ID,

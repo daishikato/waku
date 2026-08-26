@@ -6,9 +6,9 @@ import {
   clearCaches,
   learnStaticFromElements,
   prefetchRoute,
-} from '../src/router/client-utils/caches.js';
-import { load } from '../src/router/client-utils/load.js';
-import type { LoadOptions } from '../src/router/client-utils/load.js';
+} from '../src/router/core-utils/caches.js';
+import { load } from '../src/router/core-utils/load.js';
+import type { LoadOptions } from '../src/router/core-utils/load.js';
 import {
   IS_STATIC_ID,
   ROUTE_ID,
