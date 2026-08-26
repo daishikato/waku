@@ -25,6 +25,7 @@ import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
   unstable_fetchRsc as fetchRsc,
+  useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
 import * as routerCaches from '../src/router/client-utils/caches.js';
@@ -3965,6 +3966,150 @@ describe('Router integration', () => {
       expect(window.location.pathname).toBe('/final');
       expect(window.history.length).toBe(lengthBefore + 1);
     } finally {
+      view.unmount();
+    }
+  });
+
+  test('an adopted instant landing does not merge a settle patch', async () => {
+    const pending = createDeferred<Record<string, unknown>>();
+    const refetch = vi.fn<RefetchInner>(() => pending.promise);
+    installRefetch(refetch);
+    const capture = { router: null as RouterApi | null };
+    const Probe = makeProbe(capture);
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {
+      return;
+    });
+    const view = await renderRouter(
+      { initialRoute: { path: '/start', query: '', hash: '' } },
+      {
+        ...instantNavElements(),
+        [unstable_getRouteSlotId('/start')]: <Probe />,
+        [unstable_getRouteSlotId('/next')]: <Probe />,
+      },
+    );
+    try {
+      let pushed: Promise<void> | undefined;
+      await act(async () => {
+        pushed = capture.router!.push('/next', { unstable_instant: true });
+        await flush();
+      });
+      expect(window.location.pathname).toBe('/next');
+      expect(scrollToSpy).toHaveBeenCalled();
+      scrollToSpy.mockClear();
+      testHoisted.mergeTypes.length = 0;
+
+      await act(async () => {
+        pending.resolve({ [ROUTE_ID]: ['/next', ''], [IS_STATIC_ID]: true });
+        await pushed;
+        await flush();
+      });
+
+      expect(testHoisted.mergeTypes).toEqual(['swr']);
+      expect(scrollToSpy).not.toHaveBeenCalled();
+    } finally {
+      scrollToSpy.mockRestore();
+      view.unmount();
+    }
+  });
+
+  test('a failed instant nav restores pre-paint route meta', async () => {
+    const pending = createDeferred<Record<string, unknown>>();
+    installRefetch(vi.fn<RefetchInner>(() => pending.promise));
+    const capture = {
+      router: null as RouterApi | null,
+      routeId: undefined as unknown,
+      isStatic: undefined as unknown,
+    };
+    const Probe = () => {
+      const elements = use(useElementsPromise());
+      capture.routeId = elements[ROUTE_ID];
+      capture.isStatic = elements[IS_STATIC_ID];
+      capture.router = useRouter() as unknown as RouterApi;
+      return null;
+    };
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    testHoisted.elements = {
+      ...instantNavElements(),
+      [ROUTE_ID]: ['/start', 'a=1'],
+      [IS_STATIC_ID]: false,
+      root: (
+        <>
+          <Probe />
+          <ErrorBoundary>
+            <Children />
+          </ErrorBoundary>
+        </>
+      ),
+    };
+    const view = await renderApp(
+      <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
+        <Router initialRoute={{ path: '/start', query: 'a=1', hash: '' }} />
+      </Unstable_SearchCodecsProvider>,
+    );
+    try {
+      let navigation: Promise<void> | undefined;
+      await act(async () => {
+        navigation = capture.router!.push('/next', { unstable_instant: true });
+        await flush();
+      });
+      expect(capture.routeId).toEqual(['/next', '']);
+
+      await act(async () => {
+        pending.reject(new Error('offline'));
+        await expect(navigation).rejects.toThrow('offline');
+        await flush();
+      });
+
+      expect(capture.routeId).toEqual(['/start', 'a=1']);
+      expect(capture.isStatic).toBe(false);
+      expect(capture.router).toMatchObject({ path: '/next' });
+    } finally {
+      consoleErrorSpy.mockRestore();
+      view.unmount();
+    }
+  });
+
+  test('a follow after an instant paint commits with replace', async () => {
+    const refetch = vi.fn<RefetchInner>();
+    refetch
+      .mockRejectedValueOnce(
+        createCustomError('moved', { status: 307, location: '/final' }),
+      )
+      .mockResolvedValueOnce({
+        [ROUTE_ID]: ['/final', ''],
+        [IS_STATIC_ID]: false,
+      });
+    installRefetch(refetch);
+    const capture = { router: null as RouterApi | null };
+    const Probe = makeProbe(capture);
+    const historyPushSpy = vi.spyOn(window.history, 'pushState');
+    const historyReplaceSpy = vi.spyOn(window.history, 'replaceState');
+    const view = await renderRouter(
+      { initialRoute: { path: '/start', query: '', hash: '' } },
+      {
+        ...instantNavElements(),
+        [unstable_getRouteSlotId('/start')]: <Probe />,
+        [unstable_getRouteSlotId('/next')]: <Probe />,
+        [unstable_getRouteSlotId('/final')]: <Probe />,
+      },
+    );
+    try {
+      historyPushSpy.mockClear();
+      historyReplaceSpy.mockClear();
+      await act(async () => {
+        await capture.router!.push('/next', { unstable_instant: true });
+        await flush();
+      });
+
+      expect(capture.router?.path).toBe('/final');
+      expect(window.location.pathname).toBe('/final');
+      expect(historyPushSpy).toHaveBeenCalledTimes(1);
+      expect(historyReplaceSpy).toHaveBeenCalled();
+    } finally {
+      historyPushSpy.mockRestore();
+      historyReplaceSpy.mockRestore();
       view.unmount();
     }
   });

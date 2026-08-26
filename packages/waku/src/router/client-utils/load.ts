@@ -1,7 +1,7 @@
 // Store-free route loader: fetch, follow, and abort. Never writes the
 // elements store and never takes overlay/swr — commit stays with the binding.
-// `adopt` is on the signature (and unit-tested) but unused by the history
-// binding until the rebuild; follow attempts always fetch.
+// Instant paint is a binding refetch; that promise is `adopt` so the first
+// attempt does not fetch twice. Follow attempts always fetch.
 
 import { unstable_fetchRsc as fetchRsc } from '../../minimal/client.js';
 import { encodeRoutePath } from '../isomorphic-utils/route-path.js';

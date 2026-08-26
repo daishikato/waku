@@ -57,10 +57,8 @@ import type { RouterHost } from './client-utils/host.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   abortable,
-  fetchRouteElements,
   load,
 } from './client-utils/load.js';
-import type { LoadOutcome } from './client-utils/load.js';
 import { buildMergePatch } from './client-utils/merge-patch.js';
 import {
   useHmrRefetch,
@@ -242,91 +240,6 @@ type NavigationAttempt = {
   route: RouteProps;
   url: URL;
   follows: number;
-};
-
-type NavigationOutcome =
-  | {
-      type: 'landed';
-      attempt: NavigationAttempt;
-      history: HistoryIntent;
-      elements: Elements;
-      instant: boolean;
-    }
-  | {
-      type: 'reused';
-      attempt: NavigationAttempt;
-      history: HistoryIntent;
-    }
-  | {
-      type: 'left';
-      attempt: NavigationAttempt;
-      history: HistoryIntent;
-      url: URL;
-      error: unknown;
-    }
-  | {
-      type: 'failed';
-      attempt: NavigationAttempt;
-      history: HistoryIntent;
-      error: unknown;
-      restoreBase: boolean;
-    }
-  | { type: 'superseded' };
-
-const navigationFromLoad = (
-  outcome: LoadOutcome,
-  history: HistoryIntent,
-): NavigationOutcome => {
-  switch (outcome.type) {
-    case 'aborted':
-      return { type: 'superseded' };
-    case 'reused':
-      return {
-        type: 'reused',
-        attempt: {
-          route: outcome.route,
-          url: outcome.url,
-          follows: outcome.follows,
-        },
-        history,
-      };
-    case 'external':
-      return {
-        type: 'left',
-        attempt: {
-          route: outcome.route,
-          url: outcome.from,
-          follows: outcome.follows,
-        },
-        history,
-        url: outcome.url,
-        error: outcome.error,
-      };
-    case 'failed':
-      return {
-        type: 'failed',
-        attempt: {
-          route: outcome.route,
-          url: outcome.url,
-          follows: outcome.follows,
-        },
-        history,
-        error: outcome.error,
-        restoreBase: outcome.restoreMeta,
-      };
-    case 'loaded':
-      return {
-        type: 'landed',
-        attempt: {
-          route: outcome.route,
-          url: outcome.url,
-          follows: outcome.follows,
-        },
-        history,
-        elements: outcome.elements,
-        instant: false,
-      };
-  }
 };
 
 type PrefetchRoute = (route: RouteProps, options?: PrefetchOptions) => void;
@@ -1269,172 +1182,109 @@ const InnerRouter = ({
         return;
       }
       const base = resolvedElementsRef.current;
-      const canInstant =
+      const initialFollows = options.follows ?? 0;
+      const painted =
         !!options.instant &&
         canPaintInstantOverlay(
-          options.follows ?? 0,
+          initialFollows,
           nextRoute,
           resolvedElementsRef.current,
         );
-      const fetchRoute = async (
-        attempt: NavigationAttempt,
-        history: HistoryIntent,
-        restoreBase: boolean,
-      ): Promise<NavigationOutcome> => {
-        if (attempt.follows > 0 && hasStaticPath(attempt.route.path)) {
-          return { type: 'reused', attempt, history };
-        }
-        const rscPath = encodeRoutePath(attempt.route.path);
-        const cached = getPrefetch(attempt.route);
-        cached?.onInvalidate(() => {
-          if (!controller.signal.aborted) {
-            reloadWithUrl(attempt.url);
-          }
-        });
-        const prefetchedElements = getPrefetchedElements(attempt.route);
-        const instant =
-          !!options.instant &&
-          canPaintInstantOverlay(
-            attempt.follows,
-            attempt.route,
-            resolvedElementsRef.current,
-          );
-        const rscParams = createRscParams(attempt.route.query);
-        let elements: Elements;
-        try {
-          elements = await (instant
-            ? refetch(rscPath, rscParams, {
-                signal: controller.signal,
-                unstable_overlay: {
-                  [ROUTER_STATE_ID]: makeStateForAttempt(attempt, history),
-                  // meta is pinned, so an instant nav has to carry it or it goes stale
-                  [ROUTE_ID]: [attempt.route.path, attempt.route.query],
-                  [IS_STATIC_ID]: isStaticFromElements(
-                    resolvedElementsRef.current,
-                  ),
-                },
-                unstable_swr: {
-                  pin: pinForSwr(() => resolvedElementsRef.current),
-                  ...(prefetchedElements ? { base: prefetchedElements } : {}),
-                },
-                onBuildIdMismatch: () => reloadWithUrl(attempt.url),
-                ...(cached ? { prefetched: cached.promise } : {}),
-              })
-            : fetchRouteElements(rscPath, rscParams, {
-                signal: controller.signal,
-                ...(cached ? { prefetched: cached.promise } : {}),
-                onBuildIdMismatch: () => reloadWithUrl(attempt.url),
-                base,
-              }));
-        } catch (error) {
-          if (controller.signal.aborted) {
-            return { type: 'superseded' };
-          }
-          const decision = decideFollow(error, attempt, {
-            has404,
-            maxFollows: MAX_FOLLOWS_PER_NAVIGATION,
-          });
-          if (decision.type === 'leave') {
-            return {
-              type: 'left',
-              attempt,
-              history,
-              url: decision.url,
-              error,
-            };
-          }
-          if (decision.type !== 'follow') {
-            return {
-              type: 'failed',
-              attempt,
-              history,
-              error: decision.type === 'stop' ? decision.error : error,
-              restoreBase: restoreBase || instant,
-            };
-          }
-          if (instant) {
-            // the paint already wrote this url, so the follow replaces it
-            commitHistory(attempt.url, history);
-          }
-          const nextAttempt = {
-            route: decision.target,
-            url: decision.url,
-            follows: attempt.follows + 1,
-          };
-          const nextHistory = instant && history !== null ? 'replace' : history;
-          if (
-            // A render-time follow may be retrying the route whose slot threw.
-            initialAttempt.follows === 0 &&
-            isSameRscRoute(decision.target, attempt.route) &&
-            isSameRscRoute(decision.target, settledRoute)
-          ) {
-            return {
-              type: 'reused',
-              attempt: nextAttempt,
-              history: nextHistory,
-            };
-          }
-          return fetchRoute(nextAttempt, nextHistory, restoreBase || instant);
-        }
-        return controller.signal.aborted
-          ? { type: 'superseded' }
-          : { type: 'landed', attempt, history, elements, instant };
-      };
-      const outcome = canInstant
-        ? await fetchRoute(initialAttempt, options.history, false)
-        : navigationFromLoad(
-            await load(nextRoute, {
+      const cached = painted ? getPrefetch(nextRoute) : undefined;
+      const prefetchedElements = painted
+        ? getPrefetchedElements(nextRoute)
+        : undefined;
+      // overlay/swr is the one store write; load adopts that promise so the
+      // follow loop stays in the loader and an adopted landing does not merge
+      const adopt = painted
+        ? refetch(
+            encodeRoutePath(nextRoute.path),
+            createRscParams(nextRoute.query),
+            {
               signal: controller.signal,
-              refetch: shouldRefetch,
-              has404,
-              settled: settledRoute,
-              base,
-              url: routeUrl,
-              follows: options.follows ?? 0,
-              onBuildIdMismatch: reloadWithUrl,
-              onInvalidate: (url) => {
-                if (!controller.signal.aborted) {
-                  reloadWithUrl(url);
-                }
+              unstable_overlay: {
+                [ROUTER_STATE_ID]: makeStateForAttempt(
+                  initialAttempt,
+                  options.history,
+                ),
+                // meta is pinned, so an instant nav has to carry it or it goes stale
+                [ROUTE_ID]: [nextRoute.path, nextRoute.query],
+                [IS_STATIC_ID]: isStaticFromElements(base),
               },
-            }),
-            options.history,
-          );
-      if (outcome.type === 'superseded') {
+              unstable_swr: {
+                pin: pinForSwr(() => resolvedElementsRef.current),
+                ...(prefetchedElements ? { base: prefetchedElements } : {}),
+              },
+              onBuildIdMismatch: () => reloadWithUrl(routeUrl),
+              ...(cached ? { prefetched: cached.promise } : {}),
+            },
+          )
+        : undefined;
+      const outcome = await load(nextRoute, {
+        signal: controller.signal,
+        refetch: shouldRefetch,
+        has404,
+        settled: settledRoute,
+        base,
+        url: routeUrl,
+        follows: initialFollows,
+        onBuildIdMismatch: reloadWithUrl,
+        onInvalidate: (url) => {
+          if (!controller.signal.aborted) {
+            reloadWithUrl(url);
+          }
+        },
+        ...(adopt ? { adopt } : {}),
+      });
+      if (outcome.type === 'aborted') {
         return;
       }
+      // paint already pushed; a follow must replace. Intermediate follow URLs
+      // are no longer written during the loop (the loader is history-free).
+      const historyIntent =
+        painted && outcome.follows > initialFollows && options.history !== null
+          ? 'replace'
+          : options.history;
       if (outcome.type === 'reused') {
         commitRoute(
-          outcome.attempt.route,
-          makeStateForAttempt(outcome.attempt, outcome.history),
+          outcome.route,
+          makeStateForAttempt(
+            {
+              route: outcome.route,
+              url: outcome.url,
+              follows: outcome.follows,
+            },
+            historyIntent,
+          ),
           options.startTransition || startTransition,
         );
         return;
       }
-      if (outcome.type === 'left') {
-        commitHistory(outcome.attempt.url, outcome.history);
+      if (outcome.type === 'external') {
+        commitHistory(outcome.from, historyIntent);
         pendingNavigationRef.current = null;
         window.location.replace(outcome.url.href);
         throw outcome.error;
       }
       if (outcome.type === 'failed') {
         const { error } = outcome;
+        const restoreBase = outcome.restoreMeta || painted;
         const showError = () => {
           if (controller.signal.aborted) {
             return;
           }
-          commitHistory(outcome.attempt.url, outcome.history);
+          commitHistory(outcome.url, historyIntent);
           const failureState: RouterState = {
-            ...makeRouterState(outcome.attempt.route, outcome.attempt.url, {
+            ...makeRouterState(outcome.route, outcome.url, {
               history: null,
               scroll: false,
               pathChanged: false,
-              follows: outcome.attempt.follows,
+              follows: outcome.follows,
             }),
             failedFrom: settledRoute,
           };
           void mergeElements({
-            ...(outcome.restoreBase
+            ...(restoreBase
               ? {
                   [ROUTE_ID]: base[ROUTE_ID],
                   [IS_STATIC_ID]: base[IS_STATIC_ID],
@@ -1452,29 +1302,33 @@ const InnerRouter = ({
         }
         throw error;
       }
-      const { attempt, elements } = outcome;
-      if (outcome.instant) {
-        learnStaticFromElements(elements);
+      if (outcome.adopted) {
+        learnStaticFromElements(outcome.elements);
         pendingNavigationRef.current = null;
         return;
       }
+      const landed: NavigationAttempt = {
+        route: outcome.route,
+        url: outcome.url,
+        follows: outcome.follows,
+      };
       const destination = resolveServerRedirect(
-        elements,
-        makeStateForAttempt(attempt, outcome.history),
-        attempt.route.path,
+        outcome.elements,
+        makeStateForAttempt(landed, historyIntent),
+        landed.route.path,
       );
       const finalState = makeRouterState(destination.route, destination.url, {
-        history: outcome.history,
+        history: historyIntent,
         scroll: options.shouldScroll,
         pathChanged:
           requestedPathChanged || destination.route.path !== settledRoute.path,
-        follows: attempt.follows,
+        follows: landed.follows,
       });
       commit(
         finalState,
         () => {
           const patch = buildMergePatch(
-            { route: attempt.route, elements },
+            { route: landed.route, elements: outcome.elements },
             resolvedElementsRef.current,
             base,
             { settled: settledRoute },
