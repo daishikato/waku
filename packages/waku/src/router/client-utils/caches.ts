@@ -19,6 +19,8 @@ import {
   getRouteFromElements,
   isStaticFromElements,
 } from './router-state.js';
+// meta / canCommitInstantly live here; RouterState stays with the history
+// binding when this file splits
 
 type Elements = Record<string | symbol, unknown>;
 
@@ -96,6 +98,8 @@ export const createCaches = () => {
 
 export type Caches = ReturnType<typeof createCaches>;
 
+// evaluated in react-server too (`router/client` has no react-server
+// condition); must never be written outside the browser
 const singleton = createCaches();
 
 export const prefetchRoute = (
