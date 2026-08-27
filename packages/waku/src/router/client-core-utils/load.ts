@@ -33,7 +33,6 @@ export type LoadOutcome =
       route: RouteProps;
       url: URL;
       error: unknown;
-      restoreMeta: boolean;
       follows: number;
     }
   | { type: 'aborted' };
@@ -176,7 +175,6 @@ export const load = async (
           route: attempt.route,
           url: attempt.url,
           error: decision.type === 'stop' ? decision.error : error,
-          restoreMeta: false,
           follows: attempt.follows,
         };
       }

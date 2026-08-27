@@ -233,7 +233,7 @@ describe('load', () => {
     }
   });
 
-  it('fails without restoreMeta on a non-followable error', async () => {
+  it('fails on a non-followable error', async () => {
     const error = new Error('boom');
     vi.mocked(fetchRsc).mockRejectedValue(error);
     const outcome = await load(route('/next'), baseOpts());
@@ -242,7 +242,6 @@ describe('load', () => {
       route: route('/next'),
       url: new URL('http://localhost/next'),
       error,
-      restoreMeta: false,
       follows: 0,
     });
   });

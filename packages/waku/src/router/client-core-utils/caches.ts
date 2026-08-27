@@ -135,10 +135,9 @@ export const clearCaches = (): void => {
 
 const registeredLazySlices = new Set<string>();
 
-export const registerLazySlice = (id: string): (() => void) => {
+export const registerLazySlice = (id: string): void => {
   warnClientWriteOnServer('registerLazySlice');
   registeredLazySlices.add(id);
-  return () => {};
 };
 
 export const forEachRegisteredLazySlice = (fn: (id: string) => void): void => {

@@ -23,16 +23,14 @@ import {
 import { getRouteFromElements } from './element-meta.js';
 import { fetchSlice } from './slice.js';
 
-export const useInitialRoute = (
-  fallbackRoute: RouteProps,
-): { initialRoute: RouteProps; routeFallback: RouteProps } => {
+export const useInitialRoute = (proposed: RouteProps): RouteProps => {
   const elementsPromise = useElementsPromise();
   const elements = use(elementsPromise);
   const routeFromElements = getRouteFromElements(elements);
   const resolvedRoute =
-    routeFromElements && routeFromElements.path !== fallbackRoute.path
-      ? { ...routeFromElements, hash: fallbackRoute.hash }
-      : fallbackRoute;
+    routeFromElements && routeFromElements.path !== proposed.path
+      ? { ...routeFromElements, hash: proposed.hash }
+      : proposed;
   const initialHashRef = useRef(resolvedRoute.hash);
   // state, not a ref: it is read during render
   const [initialRoute] = useState(() => ({ ...resolvedRoute, hash: '' }));
@@ -41,11 +39,10 @@ export const useInitialRoute = (
   useEffect(() => {
     setRestoredHash(window.location.hash || initialHashRef.current);
   }, []);
-  const routeFallback = useMemo(
+  return useMemo(
     () => ({ ...initialRoute, hash: restoredHash }),
     [initialRoute, restoredHash],
   );
-  return { initialRoute, routeFallback };
 };
 
 export const useHmrRefetch = ({

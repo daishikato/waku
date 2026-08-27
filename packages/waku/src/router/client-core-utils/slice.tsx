@@ -82,7 +82,7 @@ export function Slice({
     (!(slotId in elements) || !isImmutableElement(elements, slotId));
   useEffect(() => {
     if (props.lazy) {
-      return registerLazySlice(id);
+      registerLazySlice(id);
     }
   }, [id, props.lazy]);
   useEffect(() => {

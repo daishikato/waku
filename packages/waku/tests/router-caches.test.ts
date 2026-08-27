@@ -293,10 +293,9 @@ describe('registered lazy slices', () => {
     clearRegisteredLazySlices();
   });
 
-  it('keeps ids after the register cleanup and after clearCaches', () => {
-    const cleanup = registerLazySlice('a');
+  it('registration is permanent: ids survive clearCaches', () => {
+    registerLazySlice('a');
     registerLazySlice('b');
-    cleanup();
     clearCaches();
     const ids: string[] = [];
     forEachRegisteredLazySlice((id) => ids.push(id));

@@ -36,7 +36,7 @@ import {
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   const elements = use(useElementsPromise());
   const mergeElements = useMergeElements();
-  const { routeFallback } = useInitialRoute(fallbackRoute);
+  const routeFallback = useInitialRoute(fallbackRoute);
   const resolvedRef = useRef(elements);
   useLayoutEffect(() => {
     resolvedRef.current = elements;

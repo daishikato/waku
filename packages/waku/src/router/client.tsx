@@ -804,7 +804,7 @@ const InnerRouter = ({
 }) => {
   const elementsPromise = useElementsPromise();
   const elements = use(elementsPromise);
-  const { initialRoute, routeFallback } = useInitialRoute(fallbackRoute);
+  const routeFallback = useInitialRoute(fallbackRoute);
 
   const has404 = has404FromElements(elements);
   const initialElementsRef = useRef(elements);
@@ -836,8 +836,8 @@ const InnerRouter = ({
   const destination = useMemo(
     () =>
       routerState &&
-      resolveServerRedirect(elements, routerState, initialRoute.path),
-    [elements, routerState, initialRoute],
+      resolveServerRedirect(elements, routerState, routeFallback.path),
+    [elements, routerState, routeFallback],
   );
   const currentRoute = destination ? destination.route : routeFallback;
   // only the current state is reconciled, so one slot is enough
@@ -1083,7 +1083,7 @@ const InnerRouter = ({
       }
       if (outcome.type === 'failed') {
         const { error } = outcome;
-        const restoreBase = outcome.restoreMeta || painted;
+        const restoreBase = painted;
         const showError = () => {
           if (controller.signal.aborted) {
             return;

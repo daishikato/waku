@@ -66,17 +66,17 @@ describe('useInitialRoute', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  test('uses element meta when the ROUTE_ID path differs from the fallback', async () => {
+  test('uses element meta when the ROUTE_ID path differs from the proposed route', async () => {
     window.history.replaceState({}, '', '/start#kept');
-    const capture: { initialRoute?: unknown; routeFallback?: unknown } = {};
+    const capture: { route?: unknown; firstHash?: string } = {};
     const Probe = () => {
-      const result = useInitialRoute({
+      const route = useInitialRoute({
         path: '/start',
         query: 'a=1',
         hash: '#kept',
       });
-      capture.initialRoute = result.initialRoute;
-      capture.routeFallback = result.routeFallback;
+      capture.firstHash ??= route.hash;
+      capture.route = route;
       return null;
     };
 
@@ -90,12 +90,8 @@ describe('useInitialRoute', () => {
       </INTERNAL_ServerRoot>,
     );
 
-    expect(capture.initialRoute).toEqual({
-      path: '/about',
-      query: 'q=2',
-      hash: '',
-    });
-    expect(capture.routeFallback).toEqual({
+    expect(capture.firstHash).toBe('');
+    expect(capture.route).toEqual({
       path: '/about',
       query: 'q=2',
       hash: '#kept',
@@ -103,14 +99,14 @@ describe('useInitialRoute', () => {
     view.unmount();
   });
 
-  test('uses the fallback when ROUTE_ID is absent', async () => {
+  test('uses the proposed route when ROUTE_ID is absent', async () => {
     window.history.replaceState({}, '', '/start');
-    const fallback = { path: '/start', query: 'a=1', hash: '#h' };
-    const capture: { initialRoute?: unknown; routeFallback?: unknown } = {};
+    const proposed = { path: '/start', query: 'a=1', hash: '#h' };
+    const capture: { route?: unknown; firstHash?: string } = {};
     const Probe = () => {
-      const result = useInitialRoute(fallback);
-      capture.initialRoute = result.initialRoute;
-      capture.routeFallback = result.routeFallback;
+      const route = useInitialRoute(proposed);
+      capture.firstHash ??= route.hash;
+      capture.route = route;
       return null;
     };
 
@@ -120,12 +116,8 @@ describe('useInitialRoute', () => {
       </INTERNAL_ServerRoot>,
     );
 
-    expect(capture.initialRoute).toEqual({
-      path: '/start',
-      query: 'a=1',
-      hash: '',
-    });
-    expect(capture.routeFallback).toEqual({
+    expect(capture.firstHash).toBe('');
+    expect(capture.route).toEqual({
       path: '/start',
       query: 'a=1',
       hash: '#h',
@@ -135,13 +127,13 @@ describe('useInitialRoute', () => {
 
   test('restores the address-bar hash after mount', async () => {
     window.history.replaceState({}, '', '/start#from-bar');
-    const capture: { routeFallback?: { hash: string } } = {};
+    const capture: { route?: { hash: string } } = {};
     const Probe = () => {
-      capture.routeFallback = useInitialRoute({
+      capture.route = useInitialRoute({
         path: '/start',
         query: '',
         hash: '#from-fallback',
-      }).routeFallback;
+      });
       return null;
     };
 
@@ -151,7 +143,7 @@ describe('useInitialRoute', () => {
       </INTERNAL_ServerRoot>,
     );
 
-    expect(capture.routeFallback?.hash).toBe('#from-bar');
+    expect(capture.route?.hash).toBe('#from-bar');
     view.unmount();
   });
 });
