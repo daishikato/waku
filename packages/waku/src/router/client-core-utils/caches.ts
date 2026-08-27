@@ -70,7 +70,6 @@ export const createCaches = () => {
     getPrefetchedElements,
     getPrefetch: (route: RouteProps): PrefetchHandle | undefined =>
       manager.get(encodeRoutePath(route.path), route.query),
-    hasStaticPath: (path: string): boolean => staticPathSet.has(path),
     canReuseStaticRoute: (
       route: RouteProps,
       currentElements: Elements,
@@ -112,9 +111,6 @@ export const getPrefetchedElements = (
 
 export const getPrefetch = (route: RouteProps): PrefetchHandle | undefined =>
   singleton.getPrefetch(route);
-
-export const hasStaticPath = (path: string): boolean =>
-  singleton.hasStaticPath(path);
 
 export const canReuseStaticRoute = (
   route: RouteProps,

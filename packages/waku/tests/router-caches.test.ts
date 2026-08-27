@@ -11,7 +11,6 @@ import {
   forEachRegisteredLazySlice,
   getPrefetch,
   getPrefetchedElements,
-  hasStaticPath,
   learnStaticFromElements,
   prefetchRoute,
   registerLazySlice,
@@ -108,14 +107,17 @@ describe('layer-1 router caches', () => {
       [IS_STATIC_ID]: false,
     });
     caches.learnStaticFromElements({});
-    expect(caches.hasStaticPath('/static')).toBe(true);
-    expect(caches.hasStaticPath('/dynamic')).toBe(false);
     expect(caches.canReuseStaticRoute(route('/static'), {})).toBe(false);
     expect(
       caches.canReuseStaticRoute(route('/static'), {
         [getRouteSlotId('/static')]: 'page',
       }),
     ).toBe(true);
+    expect(
+      caches.canReuseStaticRoute(route('/dynamic'), {
+        [getRouteSlotId('/dynamic')]: 'page',
+      }),
+    ).toBe(false);
   });
 
   it('prefetchRoute skips a path already learned as static', () => {
@@ -158,7 +160,6 @@ describe('layer-1 router caches', () => {
     const params = a.createRscParams('q=1');
 
     expect(b.getPrefetchedElements(route('/a'))).toBeUndefined();
-    expect(b.hasStaticPath('/static')).toBe(false);
     expect(
       b.canReuseStaticRoute(route('/static'), {
         [getRouteSlotId('/static')]: 'page',
@@ -188,7 +189,15 @@ describe('layer-1 router caches', () => {
     await Promise.resolve();
     expect(caches.getPrefetchedElements(route('/p'))).toBeUndefined();
     expect(caches.getPrefetch(route('/p'))).toBeUndefined();
-    expect(caches.hasStaticPath('/static')).toBe(false);
+    expect(
+      caches.canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(false);
+    vi.mocked(fetchRsc).mockClear();
+    vi.mocked(fetchRsc).mockImplementation(pending);
+    caches.prefetchRoute(route('/static'));
+    expect(fetchRsc).toHaveBeenCalled();
     expect(caches.createRscParams('q=1')).not.toBe(params);
   });
 
@@ -214,7 +223,14 @@ describe('layer-1 router caches', () => {
     onBuildIdMismatch?.();
     expect(caches.getPrefetchedElements(route('/a'))).toBeUndefined();
     expect(caches.getPrefetch(route('/c'))).toBeUndefined();
-    expect(caches.hasStaticPath('/static')).toBe(true);
+    expect(
+      caches.canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(true);
+    vi.mocked(fetchRsc).mockClear();
+    caches.prefetchRoute(route('/static'));
+    expect(fetchRsc).not.toHaveBeenCalled();
   });
 
   it('module functions share one store that createCaches does not see', async () => {
@@ -230,20 +246,27 @@ describe('layer-1 router caches', () => {
       [ROUTE_ID]: ['/static', ''],
       [IS_STATIC_ID]: true,
     });
-    expect(hasStaticPath('/static')).toBe(true);
     expect(
       canReuseStaticRoute(route('/static'), {
         [getRouteSlotId('/static')]: 'page',
       }),
     ).toBe(true);
-    expect(createCaches().hasStaticPath('/static')).toBe(false);
+    expect(
+      createCaches().canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(false);
 
     const params = createRscParams('q=1');
     expect(createRscParams('q=1')).toBe(params);
 
     clearCaches();
     expect(getPrefetchedElements(route('/x'))).toBeUndefined();
-    expect(hasStaticPath('/static')).toBe(false);
+    expect(
+      canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(false);
     expect(createRscParams('q=1')).not.toBe(params);
   });
 
