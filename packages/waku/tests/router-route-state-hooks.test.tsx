@@ -167,7 +167,9 @@ describe('useHmrRefetch', () => {
     vi.restoreAllMocks();
     clearCaches();
     clearRegisteredLazySlices();
-    globalThis.__WAKU_RSC_RELOAD_LISTENERS__ = [];
+    (
+      globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
+    ).__WAKU_RSC_RELOAD_LISTENERS__ = [];
   });
 
   test('clears caches then refetches the settled route and lazy slices', async () => {
@@ -204,7 +206,9 @@ describe('useHmrRefetch', () => {
       </INTERNAL_ServerRoot>,
     );
 
-    const reload = globalThis.__WAKU_RSC_RELOAD_LISTENERS__?.at(-1);
+    const reload = (
+      globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
+    ).__WAKU_RSC_RELOAD_LISTENERS__?.at(-1);
     expect(reload).toBeTypeOf('function');
     await act(async () => {
       reload!();
