@@ -17,9 +17,9 @@ import {
   useMergeElements_UNSTABLE as useMergeElements,
 } from 'waku/minimal/client';
 import {
+  unstable_ROUTE_ID as ROUTE_ID,
   type Unstable_RouteProps as RouteProps,
   type Unstable_RouterHost as RouterHost,
-  unstable_ROUTE_ID as ROUTE_ID,
   unstable_RouterHostContext as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
   unstable_createRscParams as createRscParams,
