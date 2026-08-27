@@ -10,6 +10,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/" data-testid="go-home">
             Home
           </a>
+          <a href="/static" data-testid="go-static">
+            Static
+          </a>
           <a href="/hello/spike" data-testid="go-hello">
             Hello
           </a>
@@ -29,4 +32,4 @@ export default function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-export const getConfig = () => ({ render: 'dynamic' }) as const;
+export const getConfig = () => ({ render: 'static' }) as const;

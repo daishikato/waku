@@ -1652,6 +1652,57 @@ describe('Slice', () => {
     view.unmount();
   });
 
+  test('lazy slice fetch is shared across independent roots; both stores receive the merge', async () => {
+    const slotId = unstable_getSliceSlotId('slice-1');
+    const pending = createDeferred<Record<string, unknown>>();
+    const refetch = installRefetch(vi.fn<RefetchInner>(() => pending.promise));
+
+    const view = await renderApp(
+      <>
+        <div data-testid="root-a">
+          <Root initialRscPath="">
+            <Slice
+              id="slice-1"
+              lazy
+              fallback={<div data-testid="fallback-a">fallback-a</div>}
+            />
+          </Root>
+        </div>
+        <div data-testid="root-b">
+          <Root initialRscPath="">
+            <Slice
+              id="slice-1"
+              lazy
+              fallback={<div data-testid="fallback-b">fallback-b</div>}
+            />
+          </Root>
+        </div>
+      </>,
+    );
+
+    expect(view.container.textContent).toContain('fallback-a');
+    expect(view.container.textContent).toContain('fallback-b');
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(refetch).toHaveBeenCalledWith(unstable_encodeSliceId('slice-1'));
+    expect(getInFlightSliceCount()).toBe(1);
+
+    await act(async () => {
+      pending.resolve({
+        [slotId]: <div data-testid="slice-body">slice-content</div>,
+      });
+    });
+
+    expect(
+      view.container.querySelector('[data-testid="root-a"]')?.textContent,
+    ).toContain('slice-content');
+    expect(
+      view.container.querySelector('[data-testid="root-b"]')?.textContent,
+    ).toContain('slice-content');
+    expect(getInFlightSliceCount()).toBe(0);
+
+    view.unmount();
+  });
+
   test('lazy slice skips fetch when static element exists', async () => {
     const slotId = unstable_getSliceSlotId('slice-1');
     const elements = {

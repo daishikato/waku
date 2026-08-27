@@ -84,4 +84,18 @@ test.describe('nav-api-spike', () => {
     await page.getByTestId('go-slice').click();
     await expect(page.getByTestId('slice-clock')).toHaveText('lazy clock');
   });
+
+  test('returning to a static route keeps URL and content in sync', async ({
+    page,
+  }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-static').click();
+    await expect(page.getByTestId('static')).toHaveText('Static');
+    await page.getByTestId('go-hello').click();
+    await expect(page.getByTestId('hello')).toHaveText('Hello spike');
+    await page.getByTestId('go-static').click();
+    await expect(page).toHaveURL(/\/static$/);
+    await expect(page.getByTestId('static')).toHaveText('Static');
+  });
 });

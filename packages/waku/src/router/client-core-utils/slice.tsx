@@ -24,11 +24,11 @@ export const fetchSlice = (
   mergeElements: ReturnType<typeof useMergeElements>,
   options?: { replace?: boolean },
 ) => {
-  if (fetchingSlices.has(id) && !options?.replace) {
-    return;
+  let request = fetchingSlices.get(id);
+  if (!request || options?.replace) {
+    request = fetchRsc(encodeSliceId(id));
+    fetchingSlices.set(id, request);
   }
-  const request = fetchRsc(encodeSliceId(id));
-  fetchingSlices.set(id, request);
   request
     .then((result) => {
       if (fetchingSlices.get(id) === request) {

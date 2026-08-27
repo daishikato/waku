@@ -19,6 +19,7 @@ import {
 import {
   type Unstable_RouteProps as RouteProps,
   type Unstable_RouterHost as RouterHost,
+  unstable_ROUTE_ID as ROUTE_ID,
   unstable_RouterHostContext as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
   unstable_createRscParams as createRscParams,
@@ -53,7 +54,13 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     const base = resolvedRef.current;
     const settled = getRouteFromElements(base) ?? routeFallback;
     const outcome = await load(next, { signal, has404, settled, base });
-    if (outcome.type === 'aborted' || outcome.type === 'reused') {
+    if (outcome.type === 'aborted') {
+      return;
+    }
+    if (outcome.type === 'reused') {
+      await mergeElements({
+        [ROUTE_ID]: [outcome.route.path, outcome.route.query],
+      });
       return;
     }
     if (outcome.type === 'external') {
