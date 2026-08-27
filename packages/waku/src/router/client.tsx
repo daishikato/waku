@@ -108,6 +108,15 @@ import {
 } from './isomorphic-utils/route-path.js';
 import type { RouteProps } from './isomorphic-utils/route-path.js';
 
+export { ErrorBoundary } from './client-core-utils/error-boundary.js';
+export {
+  Unstable_SearchCodecsProvider,
+  useParams_UNSTABLE,
+  useSearch_UNSTABLE,
+  useSetSearch_UNSTABLE,
+} from './client-core-utils/route-hooks.js';
+export { Slice } from './client-core-utils/slice.js';
+
 type NavigateOptions = {
   /**
    * Whether the link should scroll on navigation.
@@ -383,13 +392,6 @@ export function useRouter() {
     prefetch,
   };
 }
-
-export {
-  Unstable_SearchCodecsProvider,
-  useParams_UNSTABLE,
-  useSearch_UNSTABLE,
-  useSetSearch_UNSTABLE,
-} from './client-core-utils/route-hooks.js';
 
 // HACK: commit-phase .current write; extracted so react-hooks/immutability ignores it.
 const assignRef = <T,>(ref: RefObject<T | null>, node: T | null): void => {
@@ -791,9 +793,6 @@ const preloadRouteModules = (path: string) => {
     preloadModule(id, { as: 'script' });
   });
 };
-
-export { ErrorBoundary } from './client-core-utils/error-boundary.js';
-export { Slice } from './client-core-utils/slice.js';
 
 const InnerRouter = ({
   fallbackRoute,
