@@ -1,7 +1,7 @@
 import { unstable_fetchRsc as fetchRsc } from '../../minimal/client.js';
 import { encodeRoutePath } from '../isomorphic-utils/route-path.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
-import { createRscParams, getPrefetch, hasStaticPath } from './caches.js';
+import { canReuseStaticRoute, createRscParams, getPrefetch } from './caches.js';
 import { decideFollow } from './error-route.js';
 import { getRouteUrl, isSameRscRoute } from './route-url.js';
 
@@ -114,7 +114,7 @@ export const load = async (
     const isFirstAttempt = attempt.follows === initialFollows;
     // changeRoute pre-checks this; unreachable from there, used by follows and adopt
     if (
-      hasStaticPath(attempt.route.path) ||
+      canReuseStaticRoute(attempt.route, opts.base) ||
       (isFirstAttempt && opts.refetch === false)
     ) {
       return {

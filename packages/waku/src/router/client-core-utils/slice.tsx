@@ -17,7 +17,9 @@ type Elements = Record<string | symbol, unknown>;
 
 export type SliceId = string;
 
-const fetchingSlices = new Map<SliceId, Promise<Elements>>();
+type SliceRequest = { promise: Promise<Elements>; isReplace: boolean };
+
+const fetchingSlices = new Map<SliceId, SliceRequest>();
 
 export const fetchSlice = (
   id: SliceId,
@@ -25,13 +27,17 @@ export const fetchSlice = (
   options?: { replace?: boolean },
 ) => {
   let request = fetchingSlices.get(id);
-  if (!request || options?.replace) {
-    request = fetchRsc(encodeSliceId(id));
+  if (!request || (options?.replace && !request.isReplace)) {
+    request = {
+      promise: fetchRsc(encodeSliceId(id)),
+      isReplace: !!options?.replace,
+    };
     fetchingSlices.set(id, request);
   }
-  request
+  const current = request;
+  current.promise
     .then((result) => {
-      if (fetchingSlices.get(id) === request) {
+      if (fetchingSlices.get(id) === current) {
         return mergeElements(result);
       }
     })
@@ -39,7 +45,7 @@ export const fetchSlice = (
       console.error('Failed to fetch slice:', e);
     })
     .finally(() => {
-      if (fetchingSlices.get(id) === request) {
+      if (fetchingSlices.get(id) === current) {
         fetchingSlices.delete(id);
       }
     });

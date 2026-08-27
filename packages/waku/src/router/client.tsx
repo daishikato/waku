@@ -39,11 +39,11 @@ import {
 } from '../minimal/client.js';
 import {
   type PrefetchOptions,
+  canReuseStaticRoute,
   createRscParams,
   getPrefetch,
   getPrefetchedElements,
   hasCachedShell,
-  hasStaticPath,
   learnStaticFromElements,
   prefetchRoute as prefetchCachedRoute,
 } from './client-core-utils/caches.js';
@@ -903,7 +903,7 @@ const InnerRouter = ({
       if (
         options.pendingTransition &&
         shouldRefetch &&
-        !hasStaticPath(nextRoute.path) &&
+        !canReuseStaticRoute(nextRoute, resolvedElementsRef.current) &&
         !canPaintInstantOverlay(
           options.follows ?? 0,
           nextRoute,
@@ -988,7 +988,10 @@ const InnerRouter = ({
         );
       };
       // commit before any await so it stays in the caller's startTransition
-      if (hasStaticPath(nextRoute.path) || !shouldRefetch) {
+      if (
+        canReuseStaticRoute(nextRoute, resolvedElementsRef.current) ||
+        !shouldRefetch
+      ) {
         commitRoute(
           nextRoute,
           makeStateForAttempt(initialAttempt, options.history),

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ETAG_ID_PREFIX, IMMUTABLE_ETAG } from '../src/lib/utils/etags.js';
 import { unstable_fetchRsc as fetchRsc } from '../src/minimal/client.js';
 import {
+  canReuseStaticRoute,
   clearCaches,
   clearRegisteredLazySlices,
   createCaches,
@@ -109,6 +110,12 @@ describe('layer-1 router caches', () => {
     caches.learnStaticFromElements({});
     expect(caches.hasStaticPath('/static')).toBe(true);
     expect(caches.hasStaticPath('/dynamic')).toBe(false);
+    expect(caches.canReuseStaticRoute(route('/static'), {})).toBe(false);
+    expect(
+      caches.canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(true);
   });
 
   it('prefetchRoute skips a path already learned as static', () => {
@@ -152,6 +159,11 @@ describe('layer-1 router caches', () => {
 
     expect(b.getPrefetchedElements(route('/a'))).toBeUndefined();
     expect(b.hasStaticPath('/static')).toBe(false);
+    expect(
+      b.canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(false);
     expect(b.createRscParams('q=1')).not.toBe(params);
   });
 
@@ -219,6 +231,11 @@ describe('layer-1 router caches', () => {
       [IS_STATIC_ID]: true,
     });
     expect(hasStaticPath('/static')).toBe(true);
+    expect(
+      canReuseStaticRoute(route('/static'), {
+        [getRouteSlotId('/static')]: 'page',
+      }),
+    ).toBe(true);
     expect(createCaches().hasStaticPath('/static')).toBe(false);
 
     const params = createRscParams('q=1');

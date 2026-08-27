@@ -1,6 +1,14 @@
 // @vitest-environment happy-dom
 
-import { StrictMode, act, use, useEffect, useState } from 'react';
+import {
+  StrictMode,
+  act,
+  createContext,
+  use,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { preloadModule } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -39,6 +47,7 @@ import {
 } from '../src/router/client-core-utils/host.js';
 import { PREFETCH_LIMIT } from '../src/router/client-core-utils/prefetch-cache.js';
 import {
+  fetchSlice,
   getInFlightSliceCount,
   resetSliceFetches,
 } from '../src/router/client-core-utils/slice.js';
@@ -1703,6 +1712,38 @@ describe('Slice', () => {
     view.unmount();
   });
 
+  test('replace slice fetch is shared across independent callers; both merges receive the result', async () => {
+    const pending = createDeferred<Record<string, unknown>>();
+    const refetch = installRefetch(
+      vi.fn<RefetchInner>(async () => pending.promise),
+    );
+    const mergeA = vi.fn(async (data: Record<string, unknown>) => data);
+    const mergeB = vi.fn(async (data: Record<string, unknown>) => data);
+
+    fetchSlice('slice-1', mergeA as Parameters<typeof fetchSlice>[1], {
+      replace: true,
+    });
+    fetchSlice('slice-1', mergeB as Parameters<typeof fetchSlice>[1], {
+      replace: true,
+    });
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(refetch).toHaveBeenCalledWith(unstable_encodeSliceId('slice-1'));
+    expect(getInFlightSliceCount()).toBe(1);
+
+    await act(async () => {
+      pending.resolve({
+        [unstable_getSliceSlotId('slice-1')]: (
+          <div data-testid="slice-body">slice-content</div>
+        ),
+      });
+    });
+
+    expect(mergeA).toHaveBeenCalledTimes(1);
+    expect(mergeB).toHaveBeenCalledTimes(1);
+    expect(getInFlightSliceCount()).toBe(0);
+  });
+
   test('lazy slice skips fetch when static element exists', async () => {
     const slotId = unstable_getSliceSlotId('slice-1');
     const elements = {
@@ -3342,6 +3383,91 @@ describe('Router integration', () => {
 
     expect(refetch).not.toHaveBeenCalled();
     expect(capture.router.query).toBe('x=2');
+
+    view.unmount();
+  });
+
+  test('a second root fetches a static route it has never loaded', async () => {
+    const captureA = { router: null as RouterApi | null };
+    const captureB = { router: null as RouterApi | null };
+    const CaptureContext = createContext<{
+      router: RouterApi | null;
+    } | null>(null);
+    const Probe = () => {
+      const capture = useContext(CaptureContext);
+      const router = useRouter() as unknown as RouterApi;
+      if (capture) {
+        capture.router = router;
+      }
+      return <div data-testid="route-probe">{router.path}</div>;
+    };
+    const staticSlot = unstable_getRouteSlotId('/static');
+    const refetch = installRefetch(
+      vi.fn<RefetchInner>(async (rscPath) => {
+        if (rscPath === unstable_encodeRoutePath('/static')) {
+          return {
+            [staticSlot]: <div data-testid="page-static">static-content</div>,
+            [ROUTE_ID]: ['/static', ''],
+            [IS_STATIC_ID]: true,
+          };
+        }
+        return {};
+      }),
+    );
+
+    testHoisted.elements = {
+      root: (
+        <>
+          <Probe />
+          <Children />
+        </>
+      ),
+      [unstable_getRouteSlotId('/start')]: (
+        <div data-testid="page-start">start</div>
+      ),
+      [unstable_getRouteSlotId('/other')]: (
+        <div data-testid="page-other">other</div>
+      ),
+    };
+
+    const view = await renderApp(
+      <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
+        <div data-testid="root-a">
+          <CaptureContext value={captureA}>
+            <Router initialRoute={{ path: '/start', query: '', hash: '' }} />
+          </CaptureContext>
+        </div>
+        <div data-testid="root-b">
+          <CaptureContext value={captureB}>
+            <Router initialRoute={{ path: '/other', query: '', hash: '' }} />
+          </CaptureContext>
+        </div>
+      </Unstable_SearchCodecsProvider>,
+    );
+
+    expect(captureA.router).toBeTruthy();
+    expect(captureB.router).toBeTruthy();
+
+    await act(async () => {
+      await captureA.router!.push('/static');
+    });
+    await flush();
+
+    expect(
+      view.container.querySelector('[data-testid="root-a"]')?.textContent,
+    ).toContain('static-content');
+    const callsAfterA = refetch.mock.calls.length;
+    expect(callsAfterA).toBeGreaterThan(0);
+
+    await act(async () => {
+      await captureB.router!.push('/static');
+    });
+    await flush();
+
+    expect(
+      view.container.querySelector('[data-testid="root-b"]')?.textContent,
+    ).toContain('static-content');
+    expect(refetch.mock.calls.length).toBeGreaterThan(callsAfterA);
 
     view.unmount();
   });

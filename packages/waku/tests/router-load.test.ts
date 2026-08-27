@@ -13,6 +13,7 @@ import {
   IS_STATIC_ID,
   ROUTE_ID,
   encodeRoutePath,
+  getRouteSlotId,
 } from '../src/router/isomorphic-utils/route-path.js';
 
 vi.mock('../src/minimal/client.js', async (importOriginal) => {
@@ -53,12 +54,36 @@ describe('load', () => {
     vi.unstubAllEnvs();
   });
 
-  it('reuses a static path without fetching, even when refetch is true', async () => {
+  it('does not reuse a static path when base lacks the route slot', async () => {
     learnStaticFromElements({
       [ROUTE_ID]: ['/next', ''],
       [IS_STATIC_ID]: true,
     });
+    const elements = { [ROUTE_ID]: ['/next', ''] };
+    vi.mocked(fetchRsc).mockResolvedValue(elements);
     const outcome = await load(route('/next'), baseOpts());
+    expect(outcome).toEqual({
+      type: 'loaded',
+      route: route('/next'),
+      url: new URL('http://localhost/next'),
+      elements,
+      follows: 0,
+      adopted: false,
+    });
+    expect(fetchRsc).toHaveBeenCalled();
+  });
+
+  it('reuses a static path when base already holds the route slot', async () => {
+    learnStaticFromElements({
+      [ROUTE_ID]: ['/next', ''],
+      [IS_STATIC_ID]: true,
+    });
+    const outcome = await load(
+      route('/next'),
+      baseOpts({
+        base: { [getRouteSlotId('/next')]: 'page' },
+      }),
+    );
     expect(outcome).toEqual({
       type: 'reused',
       route: route('/next'),

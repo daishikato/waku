@@ -1,12 +1,12 @@
 'use client';
 
 export {
+  canReuseStaticRoute as unstable_canReuseStaticRoute,
   clearCaches as unstable_clearCaches,
   createRscParams as unstable_createRscParams,
   getPrefetch as unstable_getPrefetch,
   getPrefetchedElements as unstable_getPrefetchedElements,
   hasCachedShell as unstable_hasCachedShell,
-  hasStaticPath as unstable_hasStaticPath,
   learnStaticFromElements as unstable_learnStaticFromElements,
   prefetchRoute as unstable_prefetchRoute,
   registerLazySlice as unstable_registerLazySlice,
