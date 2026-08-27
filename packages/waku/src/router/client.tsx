@@ -1055,8 +1055,7 @@ const InnerRouter = ({
       if (outcome.type === 'aborted') {
         return;
       }
-      // paint already pushed; a follow must replace. The loader is
-      // history-free; this commit replaces the painted entry.
+      // paint already pushed; a follow must replace
       const historyIntent =
         painted && outcome.follows > initialFollows && options.history !== null
           ? 'replace'
@@ -1324,9 +1323,6 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
     </RouterContext>
   );
 }
-
-// Grab-bag kept so existing imports compile. L1 symbols belong on
-// `waku/router/client-core`; removal is a later maintainer decision.
 
 /** @deprecated Import `Unstable_RouteProps` from `waku/router/client-core`. */
 export type Unstable_RouteProps = RouteProps;

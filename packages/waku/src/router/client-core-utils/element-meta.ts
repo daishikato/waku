@@ -1,5 +1,3 @@
-// Server-owned element meta (ROUTE / HAS404 / IS_STATIC), read by the client.
-
 import { unstable_isImmutableElement as isImmutableElement } from '../../minimal/client.js';
 import {
   HAS404_ID,

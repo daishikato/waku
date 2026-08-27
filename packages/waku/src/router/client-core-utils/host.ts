@@ -1,5 +1,4 @@
-// reload cannot be expressed here (no refetch bit; a same-route navigate
-// would no-op), so it stays on the history binding.
+// reload cannot be expressed here (no refetch bit; a same-route navigate would no-op)
 
 import { createContext, useContext } from 'react';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';

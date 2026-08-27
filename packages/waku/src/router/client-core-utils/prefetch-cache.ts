@@ -1,7 +1,3 @@
-// Router-scoped cache of prefetched route trees. Keyed by (rscPath, query) so a
-// prefetch for one query is never reused for another, and bounded by a ttl and a
-// size limit so hover-prefetching in a long session cannot grow without bound.
-
 type Elements = Record<string | symbol, unknown>;
 
 export type PrefetchMode = 'always' | 'once';
@@ -21,11 +17,7 @@ export type PrefetchEntry = {
 
 type PrefetchCache = Map<string, PrefetchEntry>;
 
-// Session cache of prefetched responses, keyed by rscPath alone. Entries are
-// only served under the etag protocol: they paint immutable slots (which
-// cannot vary by query) and fall back for a dynamic slot only when the
-// server omits it, which proves the stored copy current. A null entry marks
-// a route whose first prefetch is still in flight.
+// null = first prefetch still in flight; served under the etag protocol
 type PrefetchedElementsCache = Map<string, Elements | null>;
 
 export const PREFETCH_TTL = 1000 * 60;

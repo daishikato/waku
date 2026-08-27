@@ -1,6 +1,3 @@
-// Engine-agnostic: they read element meta / window.location.hash and the
-// cache module, not history.
-
 import {
   startTransition,
   use,

@@ -1,8 +1,3 @@
-// Commit reconciliation: which response keys may land when a server action
-// may have merged newer values while the navigation fetch was in flight.
-// Store-free — returns a patch; the binding decides when to apply it and
-// adds binding-private keys (RouterState).
-
 import { ETAG_ID_PREFIX } from '../../lib/utils/etags.js';
 import {
   HAS404_ID,

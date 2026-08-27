@@ -1,9 +1,3 @@
-// Router caches as module state: prefetch manager, static-path set, and the
-// rscParams identity map. Bindings read through capabilities (hasCachedShell,
-// getPrefetchedElements) and never hold the stores. The lazy-slice id set
-// lives here so HMR can refetch after clearCaches(); it is not one of the
-// cleared stores.
-
 import { unstable_fetchRsc as fetchRsc } from '../../minimal/client.js';
 import {
   encodeRoutePath,
@@ -25,8 +19,6 @@ type Elements = Record<string | symbol, unknown>;
 
 export type { PrefetchOptions } from './prefetch-cache.js';
 
-// the binding adopts the in-flight promise and subscribes to invalidation;
-// expireAt stays inside the manager
 export type PrefetchHandle = Pick<PrefetchEntry, 'promise' | 'onInvalidate'>;
 
 // main.react-server.ts re-exports this module; writes must not run there
@@ -146,7 +138,6 @@ const registeredLazySlices = new Set<string>();
 export const registerLazySlice = (id: string): (() => void) => {
   warnClientWriteOnServer('registerLazySlice');
   registeredLazySlices.add(id);
-  // slice elements stay cached after unmount; HMR refetches by iterating this set
   return () => {};
 };
 

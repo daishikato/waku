@@ -1,6 +1,3 @@
-// Binding-private router state. Not layer 1 — L1 reads element meta through
-// element-meta.ts.
-
 import { unstable_isImmutableElement as isImmutableElement } from '../../minimal/client.js';
 import {
   getRouteFromElements,
