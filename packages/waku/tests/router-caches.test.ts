@@ -254,37 +254,6 @@ describe('layer-1 router caches', () => {
     caches.prefetchRoute(route('/p', 'q=b'), { mode: 'always' });
     expect(fetchRsc).toHaveBeenCalledTimes(1);
   });
-
-  it('warns on client-only writes evaluated without a window', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const hadWindow = 'window' in globalThis;
-    const windowValue = globalThis.window;
-    try {
-      Reflect.deleteProperty(globalThis, 'window');
-      const caches = createCaches();
-      vi.mocked(fetchRsc).mockImplementation(pending);
-      caches.prefetchRoute(route('/a'));
-      caches.learnStaticFromElements({});
-      caches.clear();
-      registerLazySlice('slice-a');
-      const messages = warn.mock.calls.map((call) => String(call[0]));
-      expect(
-        messages.some((message) => message.includes('prefetchRoute')),
-      ).toBe(true);
-      expect(
-        messages.some((message) => message.includes('learnStaticFromElements')),
-      ).toBe(true);
-      expect(messages.some((message) => message.includes('clear'))).toBe(true);
-      expect(
-        messages.some((message) => message.includes('registerLazySlice')),
-      ).toBe(true);
-    } finally {
-      if (hadWindow) {
-        globalThis.window = windowValue;
-      }
-      warn.mockRestore();
-    }
-  });
 });
 
 describe('registered lazy slices', () => {

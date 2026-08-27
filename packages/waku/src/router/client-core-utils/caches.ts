@@ -21,15 +21,6 @@ export type { PrefetchOptions } from './prefetch-cache.js';
 
 export type PrefetchHandle = Pick<PrefetchEntry, 'promise' | 'onInvalidate'>;
 
-// main.react-server.ts re-exports this module; writes must not run there
-const warnClientWriteOnServer = (caller: string): void => {
-  if (import.meta.env.DEV && typeof window === 'undefined') {
-    console.warn(
-      `caches.${caller}: client-only write evaluated in a server environment`,
-    );
-  }
-};
-
 export const createCaches = () => {
   const manager = createPrefetchManager();
   const staticPathSet = new Set<string>();
@@ -49,7 +40,6 @@ export const createCaches = () => {
 
   return {
     prefetchRoute: (route: RouteProps, options?: PrefetchOptions): void => {
-      warnClientWriteOnServer('prefetchRoute');
       if (staticPathSet.has(route.path)) {
         return;
       }
@@ -82,7 +72,6 @@ export const createCaches = () => {
       manager.get(encodeRoutePath(route.path), route.query),
     hasStaticPath: (path: string): boolean => staticPathSet.has(path),
     learnStaticFromElements: (elements: Record<string, unknown>): void => {
-      warnClientWriteOnServer('learnStaticFromElements');
       const route = getRouteFromElements(elements);
       if (route && isStaticFromElements(elements)) {
         staticPathSet.add(route.path);
@@ -90,7 +79,6 @@ export const createCaches = () => {
     },
     createRscParams,
     clear: (): void => {
-      warnClientWriteOnServer('clear');
       manager.clear();
       staticPathSet.clear();
       savedRscParams = undefined;
@@ -136,7 +124,6 @@ export const clearCaches = (): void => {
 const registeredLazySlices = new Set<string>();
 
 export const registerLazySlice = (id: string): void => {
-  warnClientWriteOnServer('registerLazySlice');
   registeredLazySlices.add(id);
 };
 
