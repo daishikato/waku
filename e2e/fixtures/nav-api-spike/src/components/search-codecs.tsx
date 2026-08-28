@@ -1,11 +1,11 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Unstable_SearchCodecsProvider } from 'waku/router/client';
+import { SearchCodecsProvider_UNSTABLE as SearchCodecsProvider } from 'waku/router/client-core';
 import * as searchCodecs from '../lib/search.js';
 
 export const SearchCodecs = ({ children }: { children: ReactNode }) => (
-  <Unstable_SearchCodecsProvider searchCodecs={searchCodecs}>
+  <SearchCodecsProvider searchCodecs={searchCodecs}>
     {children}
-  </Unstable_SearchCodecsProvider>
+  </SearchCodecsProvider>
 );

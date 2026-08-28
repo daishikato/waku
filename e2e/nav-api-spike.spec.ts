@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
 import { prepareNormalSetup, test, waitForHydration } from './utils.js';
@@ -29,6 +30,32 @@ test.describe('nav-api-spike imports', () => {
         ALLOWED_IMPORT_PREFIXES.some((prefix) => spec.includes(prefix)),
         spec,
       ).toBe(true);
+    }
+  });
+
+  test('fixture sources import nothing from waku/router/client', () => {
+    const root = fileURLToPath(
+      new URL('./fixtures/nav-api-spike/src/', import.meta.url),
+    );
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const next = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(next);
+        } else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+          files.push(next);
+        }
+      }
+    };
+    walk(root);
+    expect(files.length).toBeGreaterThan(0);
+    // client-core is allowed; this matches the history-binding entry only
+    const leak = /from ['"]waku\/router\/client['"]/;
+    for (const file of files) {
+      expect(readFileSync(file, 'utf8'), file.slice(root.length)).not.toMatch(
+        leak,
+      );
     }
   });
 });
