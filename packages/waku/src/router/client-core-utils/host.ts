@@ -7,9 +7,10 @@ import type { RouteProps } from '../isomorphic-utils/route-path.js';
  * Binding-supplied route snapshot and navigation.
  *
  * Bindings that call `load` must commit `outcome.url` after follows so the
- * address bar matches the landed route, and must pass `onBuildIdMismatch`
- * and `onInvalidate` for build-mismatch recovery or omit them so `load`
- * leaves minimal's reload default in place. `navigate` must honor `scroll`.
+ * address bar matches the landed route, and must follow a redirect thrown
+ * while rendering the landed slot. Pass `onBuildIdMismatch` and
+ * `onInvalidate` for build-mismatch recovery or omit them so `load` leaves
+ * minimal's reload default in place. `navigate` must honor `scroll`.
  */
 export type RouterHost = {
   route: RouteProps;

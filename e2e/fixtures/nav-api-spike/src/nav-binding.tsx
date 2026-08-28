@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Component,
   use,
   useCallback,
   useEffect,
@@ -10,9 +11,11 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ReactNode } from 'react';
 import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
+  unstable_getErrorInfo as getErrorInfo,
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from 'waku/minimal/client';
@@ -34,6 +37,38 @@ import {
   useInitialRoute_UNSTABLE as useInitialRoute,
 } from 'waku/router/client-core';
 import { settleNavigateFinished } from './settle-navigate-finished.js';
+
+const FollowRedirect = ({ error }: { error: unknown }) => {
+  const location = getErrorInfo(error)?.location;
+  useEffect(() => {
+    if (!location) {
+      return;
+    }
+    void window.navigation.navigate(location, { history: 'replace' });
+  }, [location]);
+  if (!location) {
+    throw error;
+  }
+  return null;
+};
+
+// the fetch can succeed with the throwing page still in the payload
+class FollowBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown | null }
+> {
+  state: { error: unknown | null } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  render() {
+    const { error } = this.state;
+    if (error !== null) {
+      return <FollowRedirect error={error} />;
+    }
+    return this.props.children;
+  }
+}
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   const elements = use(useElementsPromise());
@@ -140,7 +175,9 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   return (
     <RouterHostContext value={host}>
       <Slot id="root">
-        <Slot id={getRouteSlotId(route.path)} />
+        <FollowBoundary key={route.path}>
+          <Slot id={getRouteSlotId(route.path)} />
+        </FollowBoundary>
       </Slot>
     </RouterHostContext>
   );
