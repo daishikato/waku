@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
@@ -11,6 +11,19 @@ const ALLOWED_IMPORT_PREFIXES = [
   'waku/minimal/client',
   'waku/router/client-core',
 ];
+
+const listFixtureSources = (dir: string): string[] => {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const next = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFixtureSources(next));
+    } else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+      files.push(next);
+    }
+  }
+  return files;
+};
 
 test.describe('nav-api-spike imports', () => {
   test('binding imports stay on the L1 surface', () => {
@@ -37,18 +50,7 @@ test.describe('nav-api-spike imports', () => {
     const root = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/', import.meta.url),
     );
-    const files: string[] = [];
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const next = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(next);
-        } else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
-          files.push(next);
-        }
-      }
-    };
-    walk(root);
+    const files = listFixtureSources(root);
     expect(files.length).toBeGreaterThan(0);
     // client-core is allowed; this matches the history-binding entry only
     const leak = /from ['"]waku\/router\/client['"]/;
