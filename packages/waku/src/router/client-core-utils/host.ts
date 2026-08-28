@@ -5,6 +5,16 @@ import type { RouteProps } from '../isomorphic-utils/route-path.js';
 
 export type RouterHost = {
   route: RouteProps;
+  /**
+   * Navigate to `href` (`push` or `replace`). `scroll` is up to the binding when
+   * omitted.
+   *
+   * Resolves once the requested navigation has been handled: after its
+   * response when the route needs one, right away when it does not, and when a
+   * newer navigation supersedes it. Rejects when the navigation fails, when a
+   * redirect hands the page to the browser, and when no custom 404 route can
+   * answer a missing route.
+   */
   navigate: (
     href: string,
     opts: {

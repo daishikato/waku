@@ -33,6 +33,7 @@ import {
   unstable_prefetchRoute as prefetchRoute,
   useInitialRoute_UNSTABLE as useInitialRoute,
 } from 'waku/router/client-core';
+import { settleNavigateFinished } from './settle-navigate-finished.js';
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   const elements = use(useElementsPromise());
@@ -117,10 +118,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
 
   const navigate = useCallback<RouterHost['navigate']>((href, opts) => {
     const result = window.navigation.navigate(href, { history: opts.history });
-    return Promise.resolve(result.finished).then(
-      () => {},
-      () => {},
-    );
+    return settleNavigateFinished(result.finished);
   }, []);
   const host = useMemo(
     (): RouterHost => ({ route, navigate }),

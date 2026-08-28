@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
+import { settleNavigateFinished } from './fixtures/nav-api-spike/src/settle-navigate-finished.js';
 import { prepareNormalSetup, test, waitForHydration } from './utils.js';
 
 const startApp = prepareNormalSetup('nav-api-spike');
@@ -25,6 +26,29 @@ const listFixtureSources = (dir: string): string[] => {
   return files;
 };
 
+test.describe('settleNavigateFinished', () => {
+  test('resolves when finished fulfills', async () => {
+    await expect(
+      settleNavigateFinished(Promise.resolve()),
+    ).resolves.toBeUndefined();
+  });
+
+  test('resolves when finished rejects with AbortError', async () => {
+    await expect(
+      settleNavigateFinished(
+        Promise.reject(new DOMException('Aborted', 'AbortError')),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test('rejects when finished rejects with a failure', async () => {
+    const error = new Error('failed');
+    await expect(settleNavigateFinished(Promise.reject(error))).rejects.toBe(
+      error,
+    );
+  });
+});
+
 test.describe('nav-api-spike imports', () => {
   test('binding imports stay on the L1 surface', () => {
     const bindingPath = fileURLToPath(
@@ -38,12 +62,24 @@ test.describe('nav-api-spike imports', () => {
       (match) => match[1]!,
     );
     expect(specs.length).toBeGreaterThan(0);
-    for (const spec of specs) {
+    const packageSpecs = specs.filter(
+      (spec) => !spec.startsWith('./') && !spec.startsWith('../'),
+    );
+    expect(packageSpecs.length).toBeGreaterThan(0);
+    for (const spec of packageSpecs) {
       expect(
         ALLOWED_IMPORT_PREFIXES.some((prefix) => spec.includes(prefix)),
         spec,
       ).toBe(true);
     }
+  });
+
+  test('navigate maps Navigation API finished onto the host contract', () => {
+    const bindingPath = fileURLToPath(
+      new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
+    );
+    const src = readFileSync(bindingPath, 'utf8');
+    expect(src).toContain('settleNavigateFinished(result.finished)');
   });
 
   test('fixture sources import nothing from waku/router/client', () => {
