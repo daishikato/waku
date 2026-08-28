@@ -37,6 +37,8 @@ export const useInitialRoute = (proposed: RouteProps): RouteProps => {
   // starts empty so hydration matches the server, then the effect fills it
   const [restoredHash, setRestoredHash] = useState('');
   useEffect(() => {
+    // Browser bindings restore the address-bar hash after hydration.
+    // An in-memory host should not use this hook.
     setRestoredHash(window.location.hash || initialHashRef.current);
   }, []);
   return useMemo(

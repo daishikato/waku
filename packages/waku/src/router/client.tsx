@@ -252,6 +252,7 @@ type PrefetchRoute = (route: RouteProps, options?: PrefetchOptions) => void;
 const RouterContext = createContext<{
   route: RouteProps;
   changeRoute: ChangeRoute;
+  getElements?: () => Record<string, unknown>;
 } | null>(null);
 
 const canPaintInstantOverlay = (
@@ -317,7 +318,7 @@ const resolveRouteHref = <Path extends RoutePath>(
  */
 export function useRouter() {
   const router = useRouterOrThrow();
-  const { route, changeRoute } = router;
+  const { route, changeRoute, getElements } = router;
   const resolveCodec = useResolveSearchCodec();
   const navigate = useCallback(
     (
@@ -378,9 +379,9 @@ export function useRouter() {
       );
       const next = parseRoute(url);
       preloadRouteModules(next.path);
-      prefetchCachedRoute(next, options);
+      prefetchRouteUnlessReusable(next, options, getElements);
     },
-    [resolveCodec],
+    [resolveCodec, getElements],
   ) as Prefetch;
   return {
     ...route,
@@ -433,10 +434,24 @@ function useSharedRef<T>(
   return [managedRef, handleRef];
 }
 
+const prefetchRouteUnlessReusable = (
+  route: RouteProps,
+  options: PrefetchOptions | undefined,
+  getElements: (() => Record<string, unknown>) | undefined,
+) => {
+  const elements = getElements?.();
+  // a shared staticPathSet is not enough; skip only when this root has the slot
+  if (elements && canReuseStaticRoute(route, elements)) {
+    return;
+  }
+  prefetchCachedRoute(route, options);
+};
+
 const prefetchIfNotCurrent = (
   current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
+  getElements: (() => Record<string, unknown>) | undefined,
 ) => {
   if (!current) {
     return;
@@ -444,7 +459,7 @@ const prefetchIfNotCurrent = (
   const route = parseRoute(new URL(resolvedTo, window.location.href));
   if (!isSameRscRoute(route, current)) {
     preloadRouteModules(route.path);
-    prefetchCachedRoute(route, options);
+    prefetchRouteUnlessReusable(route, options, getElements);
   }
 };
 
@@ -453,6 +468,7 @@ const usePrefetchOnView = (
   current: RouteProps | undefined,
   resolvedTo: string,
   options: PrefetchOptions | undefined,
+  getElements: (() => Record<string, unknown>) | undefined,
 ) => {
   const enabled = !!options;
   const mode = options?.mode;
@@ -465,10 +481,15 @@ const usePrefetchOnView = (
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            prefetchIfNotCurrent(current, resolvedTo, {
-              ...(mode ? { mode } : {}),
-              ...(ttl !== undefined ? { ttl } : {}),
-            });
+            prefetchIfNotCurrent(
+              current,
+              resolvedTo,
+              {
+                ...(mode ? { mode } : {}),
+                ...(ttl !== undefined ? { ttl } : {}),
+              },
+              getElements,
+            );
           }
         });
       },
@@ -478,7 +499,7 @@ const usePrefetchOnView = (
     return () => {
       observer.disconnect();
     };
-  }, [enabled, mode, ttl, current, resolvedTo, ref]);
+  }, [enabled, mode, ttl, current, resolvedTo, ref, getElements]);
 };
 
 type NavigationStatus = { pending?: boolean };
@@ -550,7 +571,13 @@ export function Link<Path extends RoutePath>({
   const [isPending, startTransition] = useTransition();
   const [ref, setRef] = useSharedRef<HTMLAnchorElement>(refProp);
 
-  usePrefetchOnView(ref, router?.route, resolvedTo, unstable_prefetchOnView);
+  usePrefetchOnView(
+    ref,
+    router?.route,
+    resolvedTo,
+    unstable_prefetchOnView,
+    router?.getElements,
+  );
   const internalOnClick = () => {
     const url = new URL(resolvedTo, window.location.href);
     if (url.href !== window.location.href) {
@@ -599,6 +626,7 @@ export function Link<Path extends RoutePath>({
           router?.route,
           resolvedTo,
           unstable_prefetchOnEnter,
+          router?.getElements,
         );
         props.onMouseEnter?.(event);
       }
@@ -885,6 +913,7 @@ const InnerRouter = ({
     () => getSettledRoute(resolvedElementsRef.current, routeFallback),
     [routeFallback],
   );
+  const getElements = useCallback(() => resolvedElementsRef.current, []);
   useHmrRefetch({
     getSettledRoute: readSettledRoute,
     onBeforeRefetch: cancelPendingNavigation,
@@ -1267,6 +1296,7 @@ const InnerRouter = ({
       value={{
         route: currentRoute,
         changeRoute,
+        getElements,
       }}
     >
       <RouterHostContext value={host}>{rootElement}</RouterHostContext>

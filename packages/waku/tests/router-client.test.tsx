@@ -1137,7 +1137,7 @@ describe('useRouter + Link with context', () => {
   });
 
   test('useSearch and useSetSearch work under a bare RouterHost', async () => {
-    window.history.replaceState({}, '', '/posts/hello?tab=comments');
+    window.history.replaceState({}, '', '/outer#global');
     const navigate = vi.fn(async () => {});
     const capture = {
       params: undefined as unknown,
@@ -1163,7 +1163,11 @@ describe('useRouter + Link with context', () => {
       <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
         <RouterHostContext
           value={{
-            route: { path: '/posts/hello', query: 'tab=comments', hash: '' },
+            route: {
+              path: '/posts/hello',
+              query: 'tab=comments',
+              hash: '#local',
+            },
             navigate,
           }}
         >
@@ -1178,7 +1182,7 @@ describe('useRouter + Link with context', () => {
     await act(async () => {
       view.container.querySelector('button')!.click();
     });
-    expect(navigate).toHaveBeenCalledWith('/posts/hello?tab=x', {
+    expect(navigate).toHaveBeenCalledWith('/posts/hello?tab=x#local', {
       history: 'replace',
       scroll: true,
     });
@@ -3458,6 +3462,13 @@ describe('Router integration', () => {
     ).toContain('static-content');
     const callsAfterA = refetch.mock.calls.length;
     expect(callsAfterA).toBeGreaterThan(0);
+
+    expect(prefetchRsc).not.toHaveBeenCalled();
+    captureB.router!.prefetch('/static');
+    expect(prefetchRsc).toHaveBeenCalled();
+    expect(prefetchRsc.mock.calls[0]?.[0]).toBe(
+      unstable_encodeRoutePath('/static'),
+    );
 
     await act(async () => {
       await captureB.router!.push('/static');

@@ -12,7 +12,7 @@ export type PrefetchOptions = {
 export type PrefetchEntry = {
   promise: Promise<Elements>;
   expireAt: number;
-  onInvalidate: (callback: () => void) => void;
+  onInvalidate: (callback: () => void) => () => void;
 };
 
 type PrefetchCache = Map<string, PrefetchEntry>;
@@ -154,12 +154,17 @@ const startPrefetch = (
   }
   const base = prefetchedElementsCache.get(rscPath) ?? undefined;
   let invalidated = false;
-  let notifyInvalidation: (() => void) | undefined;
-  const onInvalidate = (callback: () => void) => {
-    notifyInvalidation = callback;
+  // a shared entry can have more than one load adopter
+  const invalidationCallbacks = new Set<() => void>();
+  const onInvalidate = (callback: () => void): (() => void) => {
     if (invalidated) {
       callback();
+      return () => {};
     }
+    invalidationCallbacks.add(callback);
+    return () => {
+      invalidationCallbacks.delete(callback);
+    };
   };
   const invalidate = () => {
     if (invalidated) {
@@ -170,7 +175,9 @@ const startPrefetch = (
       prefetchCache.delete(key);
     }
     prefetchedElementsCache.delete(rscPath);
-    notifyInvalidation?.();
+    const callbacks = [...invalidationCallbacks];
+    invalidationCallbacks.clear();
+    callbacks.forEach((callback) => callback());
   };
   const promise = fetchElements(base, invalidate);
   const entry: PrefetchEntry = {

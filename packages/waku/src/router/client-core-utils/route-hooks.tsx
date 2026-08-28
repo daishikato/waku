@@ -12,6 +12,7 @@ import {
   isCodec,
 } from '../isomorphic-utils/search-codec-registry.js';
 import { useRouterHost } from './host.js';
+import { getRouteUrl } from './route-url.js';
 
 const SearchCodecsContext = createContext<ReadonlyMap<string, AnyCodec>>(
   new Map(),
@@ -140,13 +141,12 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
       const prev = codec.parse(route.query) as RouteSearch<Path>;
       const partial = typeof update === 'function' ? update(prev) : update;
       const nextQuery = codec.serialize({ ...prev, ...partial });
-      const url = new URL(window.location.href);
-      url.search = nextQuery;
-      await navigate(`${url.pathname}${url.search}${url.hash}`, {
+      const nextUrl = getRouteUrl({ ...route, query: nextQuery });
+      await navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, {
         history: options?.history ?? 'push',
         scroll: options?.scroll ?? false,
       });
     },
-    [from, route.path, route.query, codecs, navigate],
+    [from, route.path, route.query, route.hash, codecs, navigate],
   );
 }

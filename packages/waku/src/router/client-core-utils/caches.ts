@@ -40,9 +40,7 @@ export const createCaches = () => {
 
   return {
     prefetchRoute: (route: RouteProps, options?: PrefetchOptions): void => {
-      if (staticPathSet.has(route.path)) {
-        return;
-      }
+      // skip is canReuseStaticRoute at the caller, which has this root's elements
       const rscPath = encodeRoutePath(route.path);
       manager.prefetch(
         rscPath,

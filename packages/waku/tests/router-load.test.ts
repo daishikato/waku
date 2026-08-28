@@ -164,6 +164,39 @@ describe('load', () => {
     await expect(pending).resolves.toEqual({ type: 'aborted' });
   });
 
+  it('notifies the remaining load when a second adopter of the same prefetch aborts', async () => {
+    const onInvalidateA = vi.fn();
+    const onInvalidateB = vi.fn();
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    let invalidate!: () => void;
+    vi.mocked(fetchRsc).mockImplementationOnce((_path, _params, options) => {
+      invalidate = () =>
+        (
+          options as { onBuildIdMismatch?: () => void } | undefined
+        )?.onBuildIdMismatch?.();
+      return new Promise(() => {});
+    });
+    prefetchRoute(route('/next'));
+    const pendingA = load(
+      route('/next'),
+      baseOpts({ onInvalidate: onInvalidateA, signal: controllerA.signal }),
+    );
+    const pendingB = load(
+      route('/next'),
+      baseOpts({ onInvalidate: onInvalidateB, signal: controllerB.signal }),
+    );
+    controllerB.abort();
+    await expect(pendingB).resolves.toEqual({ type: 'aborted' });
+    invalidate();
+    expect(onInvalidateA).toHaveBeenCalledWith(
+      new URL('http://localhost/next'),
+    );
+    expect(onInvalidateB).not.toHaveBeenCalled();
+    controllerA.abort();
+    await expect(pendingA).resolves.toEqual({ type: 'aborted' });
+  });
+
   it('returns aborted when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();

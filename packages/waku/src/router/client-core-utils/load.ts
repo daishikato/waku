@@ -125,7 +125,7 @@ export const load = async (
       };
     }
     const cached = getPrefetch(attempt.route);
-    cached?.onInvalidate(() => {
+    const unsubscribeInvalidate = cached?.onInvalidate(() => {
       if (!opts.signal.aborted) {
         opts.onInvalidate?.(attempt.url);
       }
@@ -151,6 +151,17 @@ export const load = async (
           },
         );
       }
+      if (opts.signal.aborted) {
+        return { type: 'aborted' };
+      }
+      return {
+        type: 'loaded',
+        route: attempt.route,
+        url: attempt.url,
+        elements,
+        follows: attempt.follows,
+        adopted,
+      };
     } catch (error) {
       if (opts.signal.aborted) {
         return { type: 'aborted' };
@@ -196,18 +207,10 @@ export const load = async (
         };
       }
       return run(nextAttempt);
+    } finally {
+      // an aborted load must not stay reachable from a long-lived prefetch
+      unsubscribeInvalidate?.();
     }
-    if (opts.signal.aborted) {
-      return { type: 'aborted' };
-    }
-    return {
-      type: 'loaded',
-      route: attempt.route,
-      url: attempt.url,
-      elements,
-      follows: attempt.follows,
-      adopted,
-    };
   };
 
   return run({

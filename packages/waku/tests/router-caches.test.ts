@@ -120,14 +120,15 @@ describe('layer-1 router caches', () => {
     ).toBe(false);
   });
 
-  it('prefetchRoute skips a path already learned as static', () => {
+  it('prefetchRoute fetches a path already learned as static', () => {
     const caches = createCaches();
     caches.learnStaticFromElements({
       [ROUTE_ID]: ['/static', ''],
       [IS_STATIC_ID]: true,
     });
+    vi.mocked(fetchRsc).mockImplementation(pending);
     caches.prefetchRoute(route('/static'));
-    expect(fetchRsc).not.toHaveBeenCalled();
+    expect(fetchRsc).toHaveBeenCalledTimes(1);
   });
 
   it('prefetchRoute fetches by encoded rscPath and reuses createRscParams identity', () => {
@@ -229,8 +230,9 @@ describe('layer-1 router caches', () => {
       }),
     ).toBe(true);
     vi.mocked(fetchRsc).mockClear();
+    vi.mocked(fetchRsc).mockImplementation(pending);
     caches.prefetchRoute(route('/static'));
-    expect(fetchRsc).not.toHaveBeenCalled();
+    expect(fetchRsc).toHaveBeenCalled();
   });
 
   it('module functions share one store that createCaches does not see', async () => {
