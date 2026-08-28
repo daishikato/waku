@@ -3463,13 +3463,6 @@ describe('Router integration', () => {
     const callsAfterA = refetch.mock.calls.length;
     expect(callsAfterA).toBeGreaterThan(0);
 
-    expect(prefetchRsc).not.toHaveBeenCalled();
-    captureB.router!.prefetch('/static');
-    expect(prefetchRsc).toHaveBeenCalled();
-    expect(prefetchRsc.mock.calls[0]?.[0]).toBe(
-      unstable_encodeRoutePath('/static'),
-    );
-
     await act(async () => {
       await captureB.router!.push('/static');
     });
@@ -3479,6 +3472,83 @@ describe('Router integration', () => {
       view.container.querySelector('[data-testid="root-b"]')?.textContent,
     ).toContain('static-content');
     expect(refetch.mock.calls.length).toBeGreaterThan(callsAfterA);
+
+    view.unmount();
+  });
+
+  test('a second root prefetches a static route it has never loaded', async () => {
+    const captureA = { router: null as RouterApi | null };
+    const captureB = { router: null as RouterApi | null };
+    const CaptureContext = createContext<{
+      router: RouterApi | null;
+    } | null>(null);
+    const Probe = () => {
+      const capture = useContext(CaptureContext);
+      const router = useRouter() as unknown as RouterApi;
+      if (capture) {
+        capture.router = router;
+      }
+      return <div data-testid="route-probe">{router.path}</div>;
+    };
+    const staticSlot = unstable_getRouteSlotId('/static');
+    installRefetch(
+      vi.fn<RefetchInner>(async (rscPath) => {
+        if (rscPath === unstable_encodeRoutePath('/static')) {
+          return {
+            [staticSlot]: <div data-testid="page-static">static-content</div>,
+            [ROUTE_ID]: ['/static', ''],
+            [IS_STATIC_ID]: true,
+          };
+        }
+        return {};
+      }),
+    );
+
+    testHoisted.elements = {
+      root: (
+        <>
+          <Probe />
+          <Children />
+        </>
+      ),
+      [unstable_getRouteSlotId('/start')]: (
+        <div data-testid="page-start">start</div>
+      ),
+      [unstable_getRouteSlotId('/other')]: (
+        <div data-testid="page-other">other</div>
+      ),
+    };
+
+    const view = await renderApp(
+      <Unstable_SearchCodecsProvider searchCodecs={[postsSearchCodec]}>
+        <div data-testid="root-a">
+          <CaptureContext value={captureA}>
+            <Router initialRoute={{ path: '/start', query: '', hash: '' }} />
+          </CaptureContext>
+        </div>
+        <div data-testid="root-b">
+          <CaptureContext value={captureB}>
+            <Router initialRoute={{ path: '/other', query: '', hash: '' }} />
+          </CaptureContext>
+        </div>
+      </Unstable_SearchCodecsProvider>,
+    );
+
+    await act(async () => {
+      await captureA.router!.push('/static');
+    });
+    await flush();
+
+    expect(
+      view.container.querySelector('[data-testid="root-a"]')?.textContent,
+    ).toContain('static-content');
+    // B has never loaded /static, so the shared set must not skip this
+    expect(prefetchRsc).not.toHaveBeenCalled();
+    captureB.router!.prefetch('/static');
+    expect(prefetchRsc).toHaveBeenCalled();
+    expect(prefetchRsc.mock.calls[0]?.[0]).toBe(
+      unstable_encodeRoutePath('/static'),
+    );
 
     view.unmount();
   });
