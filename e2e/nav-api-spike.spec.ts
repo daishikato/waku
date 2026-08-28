@@ -86,6 +86,15 @@ test.describe('nav-api-spike imports', () => {
     expect(src).toContain('settleNavigateFinished(result.finished)');
   });
 
+  test('navigate intercept honors scroll: false', () => {
+    const bindingPath = fileURLToPath(
+      new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
+    );
+    const src = readFileSync(bindingPath, 'utf8');
+    expect(src).toContain('info: { scroll: opts.scroll }');
+    expect(src).toContain("info?.scroll === false ? { scroll: 'manual' } : {}");
+  });
+
   test('fixture sources import nothing from waku/router/client', () => {
     const root = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/', import.meta.url),
@@ -202,6 +211,9 @@ test.describe('nav-api-spike', () => {
       el.click();
     });
     await expect(page.getByTestId('search')).toHaveText('x');
+    await page.evaluate(() =>
+      window.navigation.transition?.finished.catch(() => {}),
+    );
     expect(await page.evaluate(() => window.scrollY)).toBe(before);
   });
 });
