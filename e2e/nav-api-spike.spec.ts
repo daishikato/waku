@@ -33,6 +33,10 @@ test.describe('settleNavigateFinished', () => {
     ).resolves.toBeUndefined();
   });
 
+  test('resolves when finished is missing', async () => {
+    await expect(settleNavigateFinished(undefined)).resolves.toBeUndefined();
+  });
+
   test('resolves when finished rejects with AbortError', async () => {
     await expect(
       settleNavigateFinished(

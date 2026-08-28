@@ -2,7 +2,7 @@
 // navigation; the host contract treats that as settlement, not failure.
 
 export const settleNavigateFinished = async (
-  finished: Promise<unknown>,
+  finished: Promise<unknown> | undefined,
 ): Promise<void> => {
   try {
     await finished;
