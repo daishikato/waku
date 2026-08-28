@@ -211,9 +211,7 @@ test.describe('nav-api-spike', () => {
       el.click();
     });
     await expect(page.getByTestId('search')).toHaveText('x');
-    await page.evaluate(() =>
-      window.navigation.transition?.finished.catch(() => {}),
-    );
+    await page.evaluate(() => window.navigation.transition?.finished);
     expect(await page.evaluate(() => window.scrollY)).toBe(before);
   });
 });
