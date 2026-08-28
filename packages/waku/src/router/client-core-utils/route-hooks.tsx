@@ -141,7 +141,11 @@ export function useSetSearch_UNSTABLE<Path extends RoutePath>({
       const prev = codec.parse(route.query) as RouteSearch<Path>;
       const partial = typeof update === 'function' ? update(prev) : update;
       const nextQuery = codec.serialize({ ...prev, ...partial });
-      const nextUrl = getRouteUrl({ ...route, query: nextQuery });
+      const nextUrl = getRouteUrl({
+        path: route.path,
+        query: nextQuery,
+        hash: route.hash,
+      });
       await navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, {
         history: options?.history ?? 'push',
         scroll: options?.scroll ?? false,
