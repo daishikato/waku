@@ -43,12 +43,22 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     resolvedRef.current = elements;
   }, [elements]);
   const has404 = has404FromElements(elements);
+  // hash-only navigations skip load; the host still has to report the current hash
+  const [hash, setHash] = useState('');
+  useEffect(() => {
+    const navigation = window.navigation;
+    if (!navigation) {
+      return;
+    }
+    const sync = () => setHash(window.location.hash);
+    sync();
+    navigation.addEventListener('currententrychange', sync);
+    return () => navigation.removeEventListener('currententrychange', sync);
+  }, []);
   const route = useMemo((): RouteProps => {
     const fromElements = getRouteFromElements(elements);
-    return fromElements
-      ? { ...fromElements, hash: window.location.hash }
-      : routeFallback;
-  }, [elements, routeFallback]);
+    return fromElements ? { ...fromElements, hash } : routeFallback;
+  }, [elements, routeFallback, hash]);
 
   const run = useEffectEvent(async (next: RouteProps, signal: AbortSignal) => {
     const base = resolvedRef.current;

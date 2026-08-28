@@ -98,4 +98,20 @@ test.describe('nav-api-spike', () => {
     await expect(page).toHaveURL(/\/static$/);
     await expect(page.getByTestId('static')).toHaveText('Static');
   });
+
+  test('setSearch keeps the hash after a hash-only navigation', async ({
+    page,
+  }) => {
+    await page.goto(`http://localhost:${port}/search?q=hi`);
+    await waitForHydration(page);
+    await page.getByTestId('hash-a').click();
+    await expect(page).toHaveURL(/\/search\?q=hi#a$/);
+    await expect(page.getByTestId('host-hash')).toHaveText('#a');
+    await page.getByTestId('hash-b').click();
+    await expect(page).toHaveURL(/\/search\?q=hi#b$/);
+    await expect(page.getByTestId('host-hash')).toHaveText('#b');
+    await page.getByTestId('set-search').click();
+    await expect(page).toHaveURL(/\/search\?q=x#b$/);
+    await expect(page.getByTestId('search')).toHaveText('x');
+  });
 });
