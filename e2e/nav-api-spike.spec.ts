@@ -183,4 +183,25 @@ test.describe('nav-api-spike', () => {
     await expect(page).toHaveURL(/\/search\?q=x#b$/);
     await expect(page.getByTestId('search')).toHaveText('x');
   });
+
+  test('an internal redirect updates the address bar', async ({ page }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-old').click();
+    await expect(page.getByTestId('redirect-new')).toHaveText('New');
+    await expect(page).toHaveURL(/\/new$/);
+  });
+
+  test('setSearch does not reset scroll', async ({ page }) => {
+    await page.goto(`http://localhost:${port}/search?q=hi`);
+    await waitForHydration(page);
+    await page.evaluate(() => window.scrollTo(0, 400));
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(300);
+    await page.getByTestId('set-search').evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
+    await expect(page.getByTestId('search')).toHaveText('x');
+    expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  });
 });

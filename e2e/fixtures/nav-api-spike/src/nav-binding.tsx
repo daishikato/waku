@@ -68,18 +68,22 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     if (outcome.type === 'aborted') {
       return;
     }
+    if (outcome.type === 'external') {
+      window.location.replace(outcome.url.href);
+      throw outcome.error;
+    }
+    if (outcome.type === 'failed') {
+      throw outcome.error;
+    }
+    // intercept already committed the requested URL; a follow must rewrite this entry
+    if (outcome.url.href !== window.location.href) {
+      window.history.replaceState(null, '', outcome.url.href);
+    }
     if (outcome.type === 'reused') {
       await mergeElements({
         [ROUTE_ID]: [outcome.route.path, outcome.route.query],
       });
       return;
-    }
-    if (outcome.type === 'external') {
-      window.location.replace(outcome.url.href);
-      throw outcome.error;
-    }
-    if (outcome.type !== 'loaded') {
-      throw outcome.error;
     }
     const patch = buildMergePatch(
       { route: outcome.route, elements: outcome.elements },
@@ -109,7 +113,12 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       if (next.path === current.path && next.query === current.query) {
         return;
       }
-      event.intercept({ handler: () => run(next, event.signal) });
+      const info = event.info as { scroll?: boolean } | undefined;
+      event.intercept({
+        handler: () => run(next, event.signal),
+        // useSetSearch passes scroll: false; intercept defaults to after-transition
+        ...(info?.scroll === false ? { scroll: 'manual' } : {}),
+      });
     };
     navigation.addEventListener('navigate', onNavigate);
     prefetchRoute({ path: '/hello/spike', query: '', hash: '' });
@@ -117,7 +126,10 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   }, []);
 
   const navigate = useCallback<RouterHost['navigate']>((href, opts) => {
-    const result = window.navigation.navigate(href, { history: opts.history });
+    const result = window.navigation.navigate(href, {
+      history: opts.history,
+      info: { scroll: opts.scroll },
+    });
     return settleNavigateFinished(result.finished);
   }, []);
   const host = useMemo(

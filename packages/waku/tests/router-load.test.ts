@@ -121,6 +121,29 @@ describe('load', () => {
     });
   });
 
+  it('omits onBuildIdMismatch so fetchRsc keeps the reload default', async () => {
+    vi.mocked(fetchRsc).mockResolvedValue({ [ROUTE_ID]: ['/next', ''] });
+    await load(route('/next'), baseOpts());
+    const options = vi.mocked(fetchRsc).mock.calls[0]?.[2];
+    expect(options && 'onBuildIdMismatch' in options).toBe(false);
+  });
+
+  it('forwards onBuildIdMismatch when the caller supplied one', async () => {
+    const onBuildIdMismatch = vi.fn();
+    vi.mocked(fetchRsc).mockResolvedValue({ [ROUTE_ID]: ['/next', ''] });
+    await load(route('/next'), baseOpts({ onBuildIdMismatch }));
+    const options = vi.mocked(fetchRsc).mock.calls[0]?.[2];
+    expect(options).toEqual(
+      expect.objectContaining({
+        onBuildIdMismatch: expect.any(Function),
+      }),
+    );
+    options?.onBuildIdMismatch?.();
+    expect(onBuildIdMismatch).toHaveBeenCalledWith(
+      new URL('http://localhost/next'),
+    );
+  });
+
   it('uses an in-flight prefetch instead of fetching again', async () => {
     const elements = { [ROUTE_ID]: ['/next', ''] };
     let resolveFetch!: (value: Elements) => void;

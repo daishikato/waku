@@ -83,7 +83,7 @@ export const fetchRouteElements = (
   }: {
     signal: AbortSignal;
     prefetched?: Promise<Elements>;
-    onBuildIdMismatch: () => void;
+    onBuildIdMismatch?: () => void;
     base: Elements;
   },
 ): Promise<Elements> => {
@@ -91,7 +91,7 @@ export const fetchRouteElements = (
     ? abortable(prefetched, signal)
     : fetchRsc(rscPath, rscParams, {
         signal,
-        onBuildIdMismatch,
+        ...(onBuildIdMismatch ? { onBuildIdMismatch } : {}),
         unstable_base: base,
       });
 };
@@ -132,6 +132,7 @@ export const load = async (
     });
     const useAdopt = isFirstAttempt && opts.adopt !== undefined;
     const adoptedPromise = opts.adopt;
+    const onBuildIdMismatch = opts.onBuildIdMismatch;
     let elements: Elements;
     let adopted = false;
     try {
@@ -146,7 +147,12 @@ export const load = async (
           {
             signal: opts.signal,
             ...(cached ? { prefetched: cached.promise } : {}),
-            onBuildIdMismatch: () => opts.onBuildIdMismatch?.(attempt.url),
+            // a defined wrapper disables minimal's reload default
+            ...(onBuildIdMismatch
+              ? {
+                  onBuildIdMismatch: () => onBuildIdMismatch(attempt.url),
+                }
+              : {}),
             base: opts.base,
           },
         );

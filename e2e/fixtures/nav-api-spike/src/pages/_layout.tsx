@@ -25,6 +25,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/missing" data-testid="go-missing">
             Missing
           </a>
+          <a href="/old" data-testid="go-old">
+            Old
+          </a>
         </nav>
         {children}
       </div>

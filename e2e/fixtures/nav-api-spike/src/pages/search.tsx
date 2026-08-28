@@ -6,6 +6,7 @@ export default function SearchPage() {
     <div>
       <h1 data-testid="search-heading">Search</h1>
       <SearchProbe />
+      <div data-testid="search-spacer" style={{ height: '200vh' }} />
     </div>
   );
 }
