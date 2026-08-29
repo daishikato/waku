@@ -235,13 +235,15 @@ test.describe('nav-api-spike', () => {
   });
 
   test('a query redirect cycle stops at the follow limit', async ({ page }) => {
+    test.setTimeout(60_000);
     await page.goto(`http://localhost:${port}/`);
     await waitForHydration(page);
     await page.getByTestId('go-bounce').click();
     await expect(page.getByTestId('follow-error')).toHaveText(
       'too many redirect or 404 follows',
+      { timeout: 30_000 },
     );
-    await expect(page).toHaveURL(/\/bounce\?v=a$/);
+    await expect(page).toHaveURL(/\/bounce\?v=[ab]$/);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {

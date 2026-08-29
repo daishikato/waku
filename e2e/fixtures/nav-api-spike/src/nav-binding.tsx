@@ -42,12 +42,15 @@ import {
 } from 'waku/router/client-core';
 import { settleNavigateFinished } from './settle-navigate-finished.js';
 
+// one root; a second instance would keep this on the host. replace follows
+// increment it; a user push/traverse starts a new chain.
+const slotFollows = { current: 0 };
+let lastFollowHref = '';
+
 const FollowRedirect = ({
   decision,
-  follows,
 }: {
   decision: Extract<FollowDecision, { type: 'follow' | 'leave' }>;
-  follows: number;
 }) => {
   const href = decision.url.href;
   useEffect(() => {
@@ -55,11 +58,16 @@ const FollowRedirect = ({
       window.location.replace(href);
       return;
     }
+    if (href === lastFollowHref) {
+      return;
+    }
+    lastFollowHref = href;
+    slotFollows.current += 1;
     void window.navigation.navigate(href, {
       history: 'replace',
-      info: { follows: follows + 1 },
+      info: { follows: slotFollows.current },
     });
-  }, [decision.type, href, follows]);
+  }, [decision.type, href]);
   return null;
 };
 
@@ -92,7 +100,6 @@ class FollowBoundary extends Component<
     routeKey: string;
     route: RouteProps;
     has404: boolean;
-    followsRef: { current: number };
     children: ReactNode;
   },
   { error: unknown | null; routeKey: string }
@@ -118,22 +125,20 @@ class FollowBoundary extends Component<
       if (!isFollowable(error)) {
         throw error;
       }
-      const { route, has404, followsRef } = this.props;
+      const { route, has404 } = this.props;
       const decision = decideFollow(
         error,
         {
           route,
           url: getRouteUrl(route),
-          follows: followsRef.current,
+          follows: slotFollows.current,
         },
         { has404, maxFollows: MAX_FOLLOWS_PER_NAVIGATION },
       );
       if (decision.type === 'stop' || decision.type === 'none') {
         throw decision.type === 'stop' ? decision.error : error;
       }
-      return (
-        <FollowRedirect decision={decision} follows={followsRef.current} />
-      );
+      return <FollowRedirect decision={decision} />;
     }
     return this.props.children;
   }
@@ -148,7 +153,6 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     resolvedRef.current = elements;
   }, [elements]);
   const has404 = has404FromElements(elements);
-  const followsRef = useRef(0);
   // hash-only navigations skip load; the host still has to report the current hash
   const [hash, setHash] = useState('');
   useEffect(() => {
@@ -180,7 +184,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       if (outcome.type === 'aborted') {
         return;
       }
-      followsRef.current = outcome.follows;
+      slotFollows.current = Math.max(slotFollows.current, outcome.follows);
       if (outcome.type === 'external') {
         window.location.replace(outcome.url.href);
         throw outcome.error;
@@ -229,8 +233,14 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       }
       const info = event.info as
         { scroll?: boolean; follows?: number } | undefined;
+      if (event.navigationType !== 'replace') {
+        slotFollows.current = 0;
+        lastFollowHref = '';
+      } else if (typeof info?.follows === 'number') {
+        slotFollows.current = info.follows;
+      }
       event.intercept({
-        handler: () => run(next, event.signal, info?.follows ?? 0),
+        handler: () => run(next, event.signal, slotFollows.current),
         // useSetSearch passes scroll: false; intercept defaults to after-transition
         ...(info?.scroll === false ? { scroll: 'manual' } : {}),
       });
@@ -261,7 +271,6 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
             routeKey={`${route.path}\0${route.query}\0${route.hash}`}
             route={route}
             has404={has404}
-            followsRef={followsRef}
           >
             <Slot id={getRouteSlotId(route.path)} />
           </FollowBoundary>
