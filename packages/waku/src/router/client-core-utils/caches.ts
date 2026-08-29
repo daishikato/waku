@@ -21,19 +21,12 @@ export type { PrefetchOptions } from './prefetch-cache.js';
 
 export type PrefetchHandle = Pick<PrefetchEntry, 'promise' | 'onInvalidate'>;
 
+export const createRscParams = (query: string): URLSearchParams =>
+  new URLSearchParams({ query });
+
 export const createCaches = () => {
   const manager = createPrefetchManager();
   const staticPathSet = new Set<string>();
-  let savedRscParams: [query: string, rscParams: URLSearchParams] | undefined;
-
-  const createRscParams = (query: string): URLSearchParams => {
-    if (savedRscParams && savedRscParams[0] === query) {
-      return savedRscParams[1];
-    }
-    const rscParams = new URLSearchParams({ query });
-    savedRscParams = [query, rscParams];
-    return rscParams;
-  };
 
   const getPrefetchedElements = (route: RouteProps): Elements | undefined =>
     manager.getElements(encodeRoutePath(route.path));
@@ -80,11 +73,9 @@ export const createCaches = () => {
         staticPathSet.add(route.path);
       }
     },
-    createRscParams,
     clear: (): void => {
       manager.clear();
       staticPathSet.clear();
-      savedRscParams = undefined;
     },
   };
 };
@@ -118,9 +109,6 @@ export const canReuseStaticRoute = (
 export const learnStaticFromElements = (
   elements: Record<string, unknown>,
 ): void => singleton.learnStaticFromElements(elements);
-
-export const createRscParams = (query: string): URLSearchParams =>
-  singleton.createRscParams(query);
 
 export const clearCaches = (): void => {
   singleton.clear();

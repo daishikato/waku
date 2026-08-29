@@ -50,6 +50,7 @@ export {
 export {
   useHmrRefetch as useHmrRefetch_UNSTABLE,
   useInitialRoute as useInitialRoute_UNSTABLE,
+  useInitialRscParams as useInitialRscParams_UNSTABLE,
 } from './client-core-utils/route-state-hooks.js';
 
 export {

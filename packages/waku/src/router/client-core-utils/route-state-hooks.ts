@@ -2,15 +2,16 @@ import {
   startTransition,
   use,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import {
   unstable_fetchRsc as fetchRsc,
-  unstable_registerRscReloadListener as registerRscReloadListener,
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
+  useRegisterRscReloadListener_UNSTABLE as useRegisterRscReloadListener,
 } from '../../minimal/client.js';
 import { encodeRoutePath } from '../isomorphic-utils/route-path.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
@@ -47,6 +48,60 @@ export const useInitialRoute = (proposed: RouteProps): RouteProps => {
   );
 };
 
+// A suspended mount has no cleanup, so keep this aligned with Minimal's cache.
+const INITIAL_RSC_PARAMS_LIMIT = 32;
+const initialRscParamsCache = new Map<string, URLSearchParams>();
+
+const createInitialRscParams = (
+  rscPath: string,
+  query: string,
+): URLSearchParams => {
+  const key = JSON.stringify([rscPath, query]);
+  const cached = initialRscParamsCache.get(key);
+  if (cached) {
+    initialRscParamsCache.delete(key);
+    initialRscParamsCache.set(key, cached);
+    return cached;
+  }
+  const rscParams = createRscParams(query);
+  if (initialRscParamsCache.size === INITIAL_RSC_PARAMS_LIMIT) {
+    const oldest = initialRscParamsCache.keys().next().value;
+    if (oldest !== undefined) {
+      initialRscParamsCache.delete(oldest);
+    }
+  }
+  initialRscParamsCache.set(key, rscParams);
+  return rscParams;
+};
+
+const releaseInitialRscParams = (rscParams: URLSearchParams) => {
+  for (const [key, cached] of initialRscParamsCache) {
+    if (cached === rscParams) {
+      initialRscParamsCache.delete(key);
+      return;
+    }
+  }
+};
+
+/**
+ * Initial RSC params for one Root mount. Pass the result to `Root_UNSTABLE`.
+ * The same `rscPath` and `query` reuse one object until this mount commits. A
+ * suspended mount has no cleanup.
+ */
+export const useInitialRscParams = (
+  rscPath: string,
+  query: string,
+): URLSearchParams => {
+  const [initialRscParams] = useState(() =>
+    createInitialRscParams(rscPath, query),
+  );
+  useLayoutEffect(() => {
+    // not a cleanup: a suspended mount never commits, so this would not run
+    releaseInitialRscParams(initialRscParams);
+  }, [initialRscParams]);
+  return initialRscParams;
+};
+
 export const useHmrRefetch = ({
   getSettledRoute,
   onBeforeRefetch,
@@ -55,6 +110,7 @@ export const useHmrRefetch = ({
   onBeforeRefetch?: () => void;
 }): void => {
   const mergeElements = useMergeElements();
+  const registerRscReloadListener = useRegisterRscReloadListener();
   useEffect(() => {
     if (import.meta.hot) {
       const refetchRouteOnHmr = () => {
@@ -76,5 +132,10 @@ export const useHmrRefetch = ({
       };
       return registerRscReloadListener(refetchRouteOnHmr);
     }
-  }, [getSettledRoute, mergeElements, onBeforeRefetch]);
+  }, [
+    getSettledRoute,
+    mergeElements,
+    onBeforeRefetch,
+    registerRscReloadListener,
+  ]);
 };

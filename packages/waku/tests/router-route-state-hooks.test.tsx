@@ -14,7 +14,10 @@ import {
   vi,
 } from 'vitest';
 import * as minimalClient from '../src/minimal/client.js';
-import { INTERNAL_ServerRoot } from '../src/minimal/client.js';
+import {
+  INTERNAL_ServerRoot,
+  Root_UNSTABLE as Root,
+} from '../src/minimal/client.js';
 import * as caches from '../src/router/client-core-utils/caches.js';
 import {
   clearCaches,
@@ -24,6 +27,7 @@ import {
 import {
   useHmrRefetch,
   useInitialRoute,
+  useInitialRscParams,
 } from '../src/router/client-core-utils/route-state-hooks.js';
 import * as slice from '../src/router/client-core-utils/slice.js';
 import {
@@ -201,27 +205,31 @@ describe('useHmrRefetch', () => {
     };
 
     const view = await renderApp(
-      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
+      <Root initialRscPath="">
         <Probe />
-      </INTERNAL_ServerRoot>,
+      </Root>,
     );
 
-    const reload = (
+    const listeners = (
       globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
-    ).__WAKU_RSC_RELOAD_LISTENERS__?.at(-1);
-    expect(reload).toBeTypeOf('function');
+    ).__WAKU_RSC_RELOAD_LISTENERS__;
+    expect(listeners?.length).toBeGreaterThan(0);
     await act(async () => {
-      reload!();
+      for (const listener of [...(listeners ?? [])]) {
+        listener();
+      }
     });
 
     expect(order.slice(0, 2)).toEqual(['before', 'clear']);
     expect(order).toContain('refetch');
     expect(order).toContain('slice');
     expect(order.indexOf('clear')).toBeLessThan(order.indexOf('refetch'));
-    expect(minimalClient.unstable_fetchRsc).toHaveBeenCalledWith(
-      encodeRoutePath('/hot'),
-      caches.createRscParams('q=1'),
-    );
+    const refetchCall = vi
+      .mocked(minimalClient.unstable_fetchRsc)
+      .mock.calls.find(([rscPath]) => rscPath === encodeRoutePath('/hot'));
+    expect(refetchCall).toBeDefined();
+    expect(refetchCall?.[1]).toBeInstanceOf(URLSearchParams);
+    expect((refetchCall?.[1] as URLSearchParams).get('query')).toBe('q=1');
     expect(fetchSlice).toHaveBeenCalledWith('slice-a', expect.any(Function), {
       replace: true,
     });
@@ -230,5 +238,61 @@ describe('useHmrRefetch', () => {
     });
 
     view.unmount();
+  });
+
+  test('does not register under INTERNAL_ServerRoot, which has no Root store', async () => {
+    const Probe = () => {
+      useHmrRefetch({
+        getSettledRoute: () => ({ path: '/hot', query: '', hash: '' }),
+      });
+      return null;
+    };
+
+    (
+      globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
+    ).__WAKU_RSC_RELOAD_LISTENERS__ = [];
+
+    const view = await renderApp(
+      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
+        <Probe />
+      </INTERNAL_ServerRoot>,
+    );
+
+    expect(
+      (
+        globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
+      ).__WAKU_RSC_RELOAD_LISTENERS__,
+    ).toEqual([]);
+    view.unmount();
+  });
+});
+
+describe('useInitialRscParams', () => {
+  test('reuses params for the same key until the creating mount commits', async () => {
+    const captured: URLSearchParams[] = [];
+    const Probe = ({ path, query }: { path: string; query: string }) => {
+      captured.push(useInitialRscParams(path, query));
+      return null;
+    };
+
+    const view = await renderApp(
+      <>
+        <Probe path="/a" query="q=1" />
+        <Probe path="/a" query="q=1" />
+        <Probe path="/b" query="q=1" />
+      </>,
+    );
+
+    expect(captured).toHaveLength(3);
+    expect(captured[0]).toBe(captured[1]);
+    expect(captured[2]).not.toBe(captured[0]);
+    expect(captured[0]!.get('query')).toBe('q=1');
+    const first = captured[0];
+    view.unmount();
+
+    captured.length = 0;
+    const next = await renderApp(<Probe path="/a" query="q=1" />);
+    expect(captured[0]).not.toBe(first);
+    next.unmount();
   });
 });

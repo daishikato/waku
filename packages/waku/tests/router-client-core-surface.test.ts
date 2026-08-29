@@ -61,6 +61,7 @@ describe('waku/router/client-core surface', () => {
       'unstable_registerLazySlice',
       'useHmrRefetch_UNSTABLE',
       'useInitialRoute_UNSTABLE',
+      'useInitialRscParams_UNSTABLE',
       'useParams_UNSTABLE',
       'useResolveSearchCodec_UNSTABLE',
       'useRouterHost_UNSTABLE',

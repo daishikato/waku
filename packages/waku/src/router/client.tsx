@@ -40,6 +40,7 @@ import {
 import {
   type PrefetchOptions,
   canReuseStaticRoute,
+  createRscParams,
   getPrefetch,
   getPrefetchedElements,
   hasCachedShell,
@@ -63,6 +64,7 @@ import { useResolveSearchCodec } from './client-core-utils/route-hooks.js';
 import {
   useHmrRefetch,
   useInitialRoute,
+  useInitialRscParams,
 } from './client-core-utils/route-state-hooks.js';
 import {
   getRouteUrl,
@@ -221,44 +223,6 @@ const useRefetch = (): Refetch => {
 const isAltClick = (event: MouseEvent<HTMLAnchorElement>) =>
   event.button !== 0 ||
   !!(event.metaKey || event.altKey || event.ctrlKey || event.shiftKey);
-
-const createRscParams = (query: string): URLSearchParams =>
-  new URLSearchParams({ query });
-
-// A suspended mount has no cleanup, so keep this aligned with Minimal's cache.
-const INITIAL_RSC_PARAMS_LIMIT = 32;
-const initialRscParamsCache = new Map<string, URLSearchParams>();
-
-const createInitialRscParams = (
-  rscPath: string,
-  query: string,
-): URLSearchParams => {
-  const key = JSON.stringify([rscPath, query]);
-  const cached = initialRscParamsCache.get(key);
-  if (cached) {
-    initialRscParamsCache.delete(key);
-    initialRscParamsCache.set(key, cached);
-    return cached;
-  }
-  const rscParams = createRscParams(query);
-  if (initialRscParamsCache.size === INITIAL_RSC_PARAMS_LIMIT) {
-    const oldest = initialRscParamsCache.keys().next().value;
-    if (oldest !== undefined) {
-      initialRscParamsCache.delete(oldest);
-    }
-  }
-  initialRscParamsCache.set(key, rscParams);
-  return rscParams;
-};
-
-const releaseInitialRscParams = (rscParams: URLSearchParams) => {
-  for (const [key, cached] of initialRscParamsCache) {
-    if (cached === rscParams) {
-      initialRscParamsCache.delete(key);
-      return;
-    }
-  }
-};
 
 type ChangeRouteOptions = {
   shouldScroll: boolean;
@@ -1372,12 +1336,10 @@ export function Router({
   unstable_routeInterceptor?: (route: RouteProps) => RouteProps | false;
 }) {
   const initialRscPath = encodeRoutePath(initialRoute.path);
-  const [initialRscParams] = useState(() =>
-    createInitialRscParams(initialRscPath, initialRoute.query),
+  const initialRscParams = useInitialRscParams(
+    initialRscPath,
+    initialRoute.query,
   );
-  useLayoutEffect(() => {
-    releaseInitialRscParams(initialRscParams);
-  }, [initialRscParams]);
   return (
     <Root initialRscPath={initialRscPath} initialRscParams={initialRscParams}>
       <InnerRouter

@@ -1760,6 +1760,41 @@ describe('Slice', () => {
     expect(getInFlightSliceCount()).toBe(0);
   });
 
+  test('a replace slice fetch does not adopt an in-flight non-replace fetch', async () => {
+    const stale = createDeferred<Record<string, unknown>>();
+    const fresh = createDeferred<Record<string, unknown>>();
+    let calls = 0;
+    const refetch = installRefetch(
+      vi.fn<RefetchInner>(async () => {
+        calls += 1;
+        return calls === 1 ? stale.promise : fresh.promise;
+      }),
+    );
+    const mergeLazy = vi.fn(async (data: Record<string, unknown>) => data);
+    const mergeHmr = vi.fn(async (data: Record<string, unknown>) => data);
+    const slotId = unstable_getSliceSlotId('slice-1');
+
+    fetchSlice('slice-1', mergeLazy as Parameters<typeof fetchSlice>[1]);
+    fetchSlice('slice-1', mergeHmr as Parameters<typeof fetchSlice>[1], {
+      replace: true,
+    });
+
+    expect(refetch).toHaveBeenCalledTimes(2);
+    expect(getInFlightSliceCount()).toBe(1);
+
+    await act(async () => {
+      stale.resolve({ [slotId]: 'stale' });
+    });
+    expect(mergeHmr).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fresh.resolve({ [slotId]: 'fresh' });
+    });
+    expect(mergeHmr).toHaveBeenCalledTimes(1);
+    expect(mergeHmr.mock.calls[0]?.[0]).toEqual({ [slotId]: 'fresh' });
+    expect(getInFlightSliceCount()).toBe(0);
+  });
+
   test('lazy slice skips fetch when static element exists', async () => {
     const slotId = unstable_getSliceSlotId('slice-1');
     const elements = {

@@ -131,26 +131,30 @@ describe('layer-1 router caches', () => {
     expect(fetchRsc).toHaveBeenCalledTimes(1);
   });
 
-  it('prefetchRoute fetches by encoded rscPath and reuses createRscParams identity', () => {
+  it('prefetchRoute fetches by encoded rscPath and sends the query as RSC params', () => {
     vi.mocked(fetchRsc).mockImplementation(pending);
     const caches = createCaches();
     caches.prefetchRoute(route('/next', 'x=1'));
     expect(fetchRsc).toHaveBeenCalledTimes(1);
-    expect(fetchRsc).toHaveBeenCalledWith(
+    const rscParams = vi.mocked(fetchRsc).mock.calls[0]?.[1];
+    expect(rscParams).toBeInstanceOf(URLSearchParams);
+    expect((rscParams as URLSearchParams).get('query')).toBe('x=1');
+    expect(vi.mocked(fetchRsc).mock.calls[0]?.[0]).toBe(
       encodeRoutePath('/next'),
-      caches.createRscParams('x=1'),
-      { onBuildIdMismatch: expect.any(Function) },
     );
+    expect(vi.mocked(fetchRsc).mock.calls[0]?.[2]).toEqual({
+      onBuildIdMismatch: expect.any(Function),
+    });
   });
 
-  it('createRscParams returns the same URLSearchParams for the same query', () => {
-    const caches = createCaches();
-    const first = caches.createRscParams('a=1');
-    expect(caches.createRscParams('a=1')).toBe(first);
-    expect(caches.createRscParams('a=2')).not.toBe(first);
+  it('createRscParams is a plain factory and does not memoize', () => {
+    const first = createRscParams('a=1');
+    expect(createRscParams('a=1')).not.toBe(first);
+    expect(first.get('query')).toBe('a=1');
+    expect(createRscParams('a=1').get('query')).toBe('a=1');
   });
 
-  it('createCaches isolates prefetch, static paths, and rscParams', async () => {
+  it('createCaches isolates prefetch and static paths', async () => {
     const a = createCaches();
     const b = createCaches();
     await settlePrefetch(a, '/a', '', { a: 1 });
@@ -158,7 +162,6 @@ describe('layer-1 router caches', () => {
       [ROUTE_ID]: ['/static', ''],
       [IS_STATIC_ID]: true,
     });
-    const params = a.createRscParams('q=1');
 
     expect(b.getPrefetchedElements(route('/a'))).toBeUndefined();
     expect(
@@ -166,10 +169,9 @@ describe('layer-1 router caches', () => {
         [getRouteSlotId('/static')]: 'page',
       }),
     ).toBe(false);
-    expect(b.createRscParams('q=1')).not.toBe(params);
   });
 
-  it('clear() detaches an in-flight prefetch and forgets static paths and rscParams', async () => {
+  it('clear() detaches an in-flight prefetch and forgets static paths', async () => {
     const caches = createCaches();
     let resolveFetch!: (elements: Elements) => void;
     vi.mocked(fetchRsc).mockImplementationOnce(
@@ -183,7 +185,6 @@ describe('layer-1 router caches', () => {
       [ROUTE_ID]: ['/static', ''],
       [IS_STATIC_ID]: true,
     });
-    const params = caches.createRscParams('q=1');
     caches.clear();
     resolveFetch({ a: 1 });
     await Promise.resolve();
@@ -199,7 +200,6 @@ describe('layer-1 router caches', () => {
     vi.mocked(fetchRsc).mockImplementation(pending);
     caches.prefetchRoute(route('/static'));
     expect(fetchRsc).toHaveBeenCalled();
-    expect(caches.createRscParams('q=1')).not.toBe(params);
   });
 
   it('getPrefetch is keyed by path and query', () => {
@@ -260,7 +260,8 @@ describe('layer-1 router caches', () => {
     ).toBe(false);
 
     const params = createRscParams('q=1');
-    expect(createRscParams('q=1')).toBe(params);
+    expect(createRscParams('q=1')).not.toBe(params);
+    expect(params.get('query')).toBe('q=1');
 
     clearCaches();
     expect(getPrefetchedElements(route('/x'))).toBeUndefined();
@@ -269,7 +270,6 @@ describe('layer-1 router caches', () => {
         [getRouteSlotId('/static')]: 'page',
       }),
     ).toBe(false);
-    expect(createRscParams('q=1')).not.toBe(params);
   });
 
   it('getPrefetch is undefined after ttl expiry', () => {

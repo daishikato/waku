@@ -25,7 +25,6 @@ import {
   type Unstable_RouterHost as RouterHost,
   unstable_RouterHostContext as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
-  unstable_createRscParams as createRscParams,
   unstable_encodeRoutePath as encodeRoutePath,
   unstable_getRouteFromElements as getRouteFromElements,
   unstable_getRouteSlotId as getRouteSlotId,
@@ -35,6 +34,7 @@ import {
   unstable_parseRoute as parseRoute,
   unstable_prefetchRoute as prefetchRoute,
   useInitialRoute_UNSTABLE as useInitialRoute,
+  useInitialRscParams_UNSTABLE as useInitialRscParams,
 } from 'waku/router/client-core';
 import { settleNavigateFinished } from './settle-navigate-finished.js';
 
@@ -185,10 +185,12 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
 
 export const NavRouter = () => {
   const [fallback] = useState(() => parseRoute(new URL(window.location.href)));
+  const initialRscPath = encodeRoutePath(fallback.path);
+  const initialRscParams = useInitialRscParams(initialRscPath, fallback.query);
   return (
     <Root
-      initialRscPath={encodeRoutePath(fallback.path)}
-      initialRscParams={createRscParams(fallback.query)}
+      initialRscPath={initialRscPath}
+      initialRscParams={initialRscParams}
     >
       <NavBinding fallbackRoute={fallback} />
     </Root>
