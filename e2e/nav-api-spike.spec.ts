@@ -368,8 +368,17 @@ test.describe('nav-api-spike', () => {
     page,
   }) => {
     // mixcycle remounts FollowBoundary on each 404 slot throw; load hops
-    // to /404 in between. both share MAX_FOLLOWS_PER_NAVIGATION.
+    // to /404 in between. both share MAX_FOLLOWS_PER_NAVIGATION: 10 load
+    // hops (mix-b RSC) plus 10 slot hops hit 20. omitting
+    // setFollows(outcome.follows), slots still display 20 and mix-b is
+    // fetched ~20 times.
     test.setTimeout(60_000);
+    let mixBFetches = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/RSC/R/mix-b.txt') {
+        mixBFetches += 1;
+      }
+    });
     await page.goto(`http://localhost:${port}/mix-budget`);
     await waitForHydration(page);
     await expect(page.getByTestId('mix-budget')).toHaveText('mix budget');
@@ -379,6 +388,7 @@ test.describe('nav-api-spike', () => {
     await expect(
       page.getByTestId('mix-budget-host').getByTestId('follow-count'),
     ).toHaveText('20');
+    expect(mixBFetches).toBe(10);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
