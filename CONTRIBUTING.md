@@ -74,7 +74,8 @@ behavior.
 
 Unstable APIs use `_UNSTABLE` for React components, hooks, and contexts,
 `Unstable_` for TypeScript types, and `unstable_` for other values and
-functions.
+functions. A deprecated alias keeps the name it shipped with; the
+convention applies to the name an API is introduced under.
 
 ### For AI agents
 
