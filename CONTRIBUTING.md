@@ -72,8 +72,9 @@ explicit types and useful JSDoc; implementation details should generally rely
 on inference and avoid narrating comments. Add focused tests for changed
 behavior.
 
-Unstable APIs use `_UNSTABLE` for React components and hooks, `Unstable_` for
-TypeScript types, and `unstable_` for other values and functions.
+Unstable APIs use `_UNSTABLE` for React components, hooks, and contexts,
+`Unstable_` for TypeScript types, and `unstable_` for other values and
+functions.
 
 ### For AI agents
 
