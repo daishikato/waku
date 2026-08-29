@@ -188,10 +188,7 @@ export const NavRouter = () => {
   const initialRscPath = encodeRoutePath(fallback.path);
   const initialRscParams = useInitialRscParams(initialRscPath, fallback.query);
   return (
-    <Root
-      initialRscPath={initialRscPath}
-      initialRscParams={initialRscParams}
-    >
+    <Root initialRscPath={initialRscPath} initialRscParams={initialRscParams}>
       <NavBinding fallbackRoute={fallback} />
     </Root>
   );

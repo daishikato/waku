@@ -14,10 +14,7 @@ import {
   vi,
 } from 'vitest';
 import * as minimalClient from '../src/minimal/client.js';
-import {
-  INTERNAL_ServerRoot,
-  Root_UNSTABLE as Root,
-} from '../src/minimal/client.js';
+import { INTERNAL_ServerRoot } from '../src/minimal/client.js';
 import * as caches from '../src/router/client-core-utils/caches.js';
 import {
   clearCaches,
@@ -196,6 +193,11 @@ describe('useHmrRefetch', () => {
     registerLazySlice('slice-a');
     registerLazySlice('slice-b');
 
+    const register = vi
+      .spyOn(minimalClient, 'useRegisterRscReloadListener_UNSTABLE')
+      .mockImplementation(
+        () => minimalClient.unstable_registerRscReloadListener,
+      );
     const Probe = () => {
       useHmrRefetch({
         getSettledRoute: () => ({ path: '/hot', query: 'q=1', hash: '' }),
@@ -205,19 +207,18 @@ describe('useHmrRefetch', () => {
     };
 
     const view = await renderApp(
-      <Root initialRscPath="">
+      <INTERNAL_ServerRoot elementsPromise={resolvedThenable({})}>
         <Probe />
-      </Root>,
+      </INTERNAL_ServerRoot>,
     );
 
-    const listeners = (
+    expect(register).toHaveBeenCalled();
+    const reload = (
       globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
-    ).__WAKU_RSC_RELOAD_LISTENERS__;
-    expect(listeners?.length).toBeGreaterThan(0);
+    ).__WAKU_RSC_RELOAD_LISTENERS__?.at(-1);
+    expect(reload).toBeTypeOf('function');
     await act(async () => {
-      for (const listener of [...(listeners ?? [])]) {
-        listener();
-      }
+      reload!();
     });
 
     expect(order.slice(0, 2)).toEqual(['before', 'clear']);
@@ -259,9 +260,8 @@ describe('useHmrRefetch', () => {
     );
 
     expect(
-      (
-        globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] }
-      ).__WAKU_RSC_RELOAD_LISTENERS__,
+      (globalThis as { __WAKU_RSC_RELOAD_LISTENERS__?: (() => void)[] })
+        .__WAKU_RSC_RELOAD_LISTENERS__,
     ).toEqual([]);
     view.unmount();
   });
