@@ -427,7 +427,8 @@ Important behavior:
 
 - `initialRscPath` defaults to `''`.
 - `Root` is required for `Slot`, `Children`, and `useMergeElements`.
-- The client store is a module-level singleton (normally one per document), so mounting multiple `Root` instances is not supported.
+- Each `Root` owns its client store. Bare server action calls use the `Root`
+  that was most recently mounted when the request starts.
 - `Root` injects default head tags for charset, viewport, and generator.
 - For SSR or SSG, use `hydrateRoot(document, rootElement)` when `globalThis.__WAKU_HYDRATE__` is set.
 - For purely client-side rendering, use `createRoot(document).render(rootElement)`.
@@ -516,12 +517,13 @@ The Minimal API exposes fetching and merging separately. Define a hook for the b
 import { useCallback, useTransition } from 'react';
 import {
   unstable_fetchRsc as fetchRsc,
-  unstable_registerRscReloadListener as registerRscReloadListener,
   useMergeElements_UNSTABLE as useMergeElements,
+  useRegisterRscReloadListener_UNSTABLE as useRegisterRscReloadListener,
 } from 'waku/minimal/client';
 
 const useRefetch = () => {
   const mergeElements = useMergeElements();
+  const registerRscReloadListener = useRegisterRscReloadListener();
   return useCallback(
     (rscPath: string, rscParams?: unknown) => {
       const refetch = () => mergeElements(fetchRsc(rscPath, rscParams));
@@ -533,7 +535,7 @@ const useRefetch = () => {
       );
       return refetch();
     },
-    [mergeElements],
+    [mergeElements, registerRscReloadListener],
   );
 };
 

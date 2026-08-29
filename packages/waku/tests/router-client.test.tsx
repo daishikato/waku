@@ -129,6 +129,7 @@ const testHoisted = vi.hoisted(() => ({
     | undefined
   >,
   onMerge: null as (() => void) | null,
+  legacyActionListenerRegistrations: 0,
 }));
 
 const createDeferred = <T,>() => {
@@ -466,6 +467,16 @@ vi.mock('../src/minimal/client.js', async () => {
     ),
     useMergeElements_UNSTABLE: () =>
       useMockMergeElements() ?? noopMergeElements,
+    useRegisterCallServerElementsListener_UNSTABLE: () =>
+      actual.unstable_registerCallServerElementsListener,
+    unstable_registerCallServerElementsListener: (
+      ...args: Parameters<
+        typeof actual.unstable_registerCallServerElementsListener
+      >
+    ) => {
+      testHoisted.legacyActionListenerRegistrations += 1;
+      return actual.unstable_registerCallServerElementsListener(...args);
+    },
     unstable_fetchRsc: vi.fn(
       (
         rscPath: string,
@@ -598,6 +609,7 @@ beforeEach(() => {
   testHoisted.mergeTypes.length = 0;
   testHoisted.mergeOptions.length = 0;
   testHoisted.onMerge = null;
+  testHoisted.legacyActionListenerRegistrations = 0;
   // Fresh shared request mock per test. The mocked fetch wraps it, so its
   // implementation must stay intact (do not mockReset it).
   testHoisted.inner = vi.fn(async () => ({}));
@@ -1876,6 +1888,34 @@ describe('Router integration', () => {
     view.unmount();
   });
 
+  test('keeps initial params stable until the Router commits', async () => {
+    const elements = {
+      [unstable_getRouteSlotId('/start')]: <div />,
+      [ROUTE_ID]: ['/start', ''],
+      [IS_STATIC_ID]: false,
+    };
+    const view = await renderRouterInStrictMode(
+      { initialRoute: { path: '/start', query: 'a=1', hash: '' } },
+      elements,
+    );
+    const params = vi
+      .mocked(Root)
+      .mock.calls.map(([props]) => props.initialRscParams as URLSearchParams);
+
+    expect(params.length).toBeGreaterThan(1);
+    expect(params.every((item) => item === params[0])).toBe(true);
+
+    const nextView = await renderRouter(
+      { initialRoute: { path: '/start', query: 'a=1', hash: '' } },
+      elements,
+    );
+    expect(vi.mocked(Root).mock.calls.at(-1)?.[0].initialRscParams).not.toBe(
+      params[0],
+    );
+    view.unmount();
+    nextView.unmount();
+  });
+
   test('uses route data as initial route', async () => {
     window.history.replaceState({}, '', '/missing');
 
@@ -1894,10 +1934,7 @@ describe('Router integration', () => {
   });
 
   test('registers its callServer listener once, and removes it on unmount (StrictMode)', async () => {
-    // The store is a module-level singleton; 'l' is CALL_SERVER_ELEMENTS_LISTENERS.
-    // NOTE: the etags-header *fetch enhancer* ('f') is no longer owned by the
-    // router; it moved into the minimal layer (covered by the minimal
-    // carry/replay test). The router keeps only the callServer listener.
+    // The Minimal mock records Root-bound listeners in the legacy store.
     const store = fetchRscStore as unknown as Record<string, unknown>;
     delete store.l;
     const size = (key: string) =>
@@ -1915,6 +1952,7 @@ describe('Router integration', () => {
 
     // Registered exactly once despite StrictMode's mount/unmount/mount cycle.
     expect(size('l')).toBe(1);
+    expect(testHoisted.legacyActionListenerRegistrations).toBe(0);
 
     view.unmount();
 

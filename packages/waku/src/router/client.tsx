@@ -31,16 +31,15 @@ import {
   unstable_addBase as addBase,
   unstable_fetchRsc as fetchRsc,
   unstable_getErrorInfo as getErrorInfo,
-  unstable_registerCallServerElementsListener as registerCallServerElementsListener,
-  unstable_registerRscReloadListener as registerRscReloadListener,
   unstable_removeBase as removeBase,
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
+  useRegisterCallServerElementsListener_UNSTABLE as useRegisterCallServerElementsListener,
+  useRegisterRscReloadListener_UNSTABLE as useRegisterRscReloadListener,
 } from '../minimal/client.js';
 import {
   type PrefetchOptions,
   canReuseStaticRoute,
-  createRscParams,
   getPrefetch,
   getPrefetchedElements,
   hasCachedShell,
@@ -222,6 +221,44 @@ const useRefetch = (): Refetch => {
 const isAltClick = (event: MouseEvent<HTMLAnchorElement>) =>
   event.button !== 0 ||
   !!(event.metaKey || event.altKey || event.ctrlKey || event.shiftKey);
+
+const createRscParams = (query: string): URLSearchParams =>
+  new URLSearchParams({ query });
+
+// A suspended mount has no cleanup, so keep this aligned with Minimal's cache.
+const INITIAL_RSC_PARAMS_LIMIT = 32;
+const initialRscParamsCache = new Map<string, URLSearchParams>();
+
+const createInitialRscParams = (
+  rscPath: string,
+  query: string,
+): URLSearchParams => {
+  const key = JSON.stringify([rscPath, query]);
+  const cached = initialRscParamsCache.get(key);
+  if (cached) {
+    initialRscParamsCache.delete(key);
+    initialRscParamsCache.set(key, cached);
+    return cached;
+  }
+  const rscParams = createRscParams(query);
+  if (initialRscParamsCache.size === INITIAL_RSC_PARAMS_LIMIT) {
+    const oldest = initialRscParamsCache.keys().next().value;
+    if (oldest !== undefined) {
+      initialRscParamsCache.delete(oldest);
+    }
+  }
+  initialRscParamsCache.set(key, rscParams);
+  return rscParams;
+};
+
+const releaseInitialRscParams = (rscParams: URLSearchParams) => {
+  for (const [key, cached] of initialRscParamsCache) {
+    if (cached === rscParams) {
+      initialRscParamsCache.delete(key);
+      return;
+    }
+  }
+};
 
 type ChangeRouteOptions = {
   shouldScroll: boolean;
@@ -845,6 +882,7 @@ const InnerRouter = ({
 
   const refetch = useRefetch();
   const mergeElements = useMergeElements();
+  const registerRscReloadListener = useRegisterRscReloadListener();
   const pendingNavigationRef = useRef<{
     controller: AbortController;
     queuedState?: RouterState;
@@ -857,7 +895,7 @@ const InnerRouter = ({
       // The listener below owns the current route, not Root's initial path.
       registerRscReloadListener(() => {}, { replace: true });
     }
-  }, []);
+  }, [registerRscReloadListener]);
 
   const routerState = getRouterState(elements);
   const destination = useMemo(
@@ -1187,7 +1225,14 @@ const InnerRouter = ({
         options.startTransition || startTransition,
       );
     },
-    [routeFallback, refetch, mergeElements, cancelPendingNavigation, has404],
+    [
+      routeFallback,
+      refetch,
+      mergeElements,
+      cancelPendingNavigation,
+      has404,
+      registerRscReloadListener,
+    ],
   );
 
   const changeRouteFromServer = useCallback(
@@ -1218,6 +1263,8 @@ const InnerRouter = ({
     },
     [changeRoute, routeFallback],
   );
+  const registerCallServerElementsListener =
+    useRegisterCallServerElementsListener();
   useEffect(() => {
     const listener = (elements: Record<string, unknown>) => {
       learnStaticFromElements(elements);
@@ -1229,7 +1276,7 @@ const InnerRouter = ({
       });
     };
     return registerCallServerElementsListener(listener);
-  }, [changeRouteFromServer]);
+  }, [changeRouteFromServer, registerCallServerElementsListener]);
 
   const navigate = useCallback<RouterHost['navigate']>(
     (href, opts) => {
@@ -1305,9 +1352,11 @@ const InnerRouter = ({
 };
 
 /**
- * Client router root. Mount once near the app root so `useRouter`, `Link`, and
- * related hooks share navigation state. `initialRoute` defaults to the current
- * browser location.
+ * Client router root. Each instance provides navigation state to its
+ * descendants. Instances can start from different `initialRoute` values, but
+ * navigation uses the document's shared URL and history. Server action
+ * requests use the most recently mounted Minimal Root. `initialRoute` defaults
+ * to the current browser location.
  */
 export function Router({
   initialRoute = parseRoute(new URL(window.location.href)),
@@ -1323,7 +1372,12 @@ export function Router({
   unstable_routeInterceptor?: (route: RouteProps) => RouteProps | false;
 }) {
   const initialRscPath = encodeRoutePath(initialRoute.path);
-  const initialRscParams = createRscParams(initialRoute.query);
+  const [initialRscParams] = useState(() =>
+    createInitialRscParams(initialRscPath, initialRoute.query),
+  );
+  useLayoutEffect(() => {
+    releaseInitialRscParams(initialRscParams);
+  }, [initialRscParams]);
   return (
     <Root initialRscPath={initialRscPath} initialRscParams={initialRscParams}>
       <InnerRouter
