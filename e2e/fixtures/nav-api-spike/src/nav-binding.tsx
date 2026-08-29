@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import type { ReactNode } from 'react';
 import {
@@ -43,27 +44,33 @@ import {
 } from 'waku/router/client-core';
 import { settleNavigateFinished } from './settle-navigate-finished.js';
 
+type FollowRun = (
+  next: RouteProps,
+  signal: AbortSignal,
+  follows: number,
+) => Promise<void>;
+
 type FollowHost = {
   ownsNavigation: boolean;
-  hostFollows: { current: number };
-  lastFollowHref: { current: string };
-  runRef: {
-    current: (
-      next: RouteProps,
-      signal: AbortSignal,
-      follows: number,
-    ) => Promise<void>;
-  };
+  follows: number;
+  setFollows: (n: number | ((n: number) => number)) => void;
+  lastFollowHrefRef: { current: string };
+  runRef: { current: FollowRun };
 };
 
 const FollowHostContext = createContext<FollowHost | null>(null);
+
+const subscribeNever = () => () => {};
+const getClientTrue = () => true;
+const getServerFalse = () => false;
 
 const FollowRedirect = ({
   decision,
 }: {
   decision: Extract<FollowDecision, { type: 'follow' | 'leave' }>;
 }) => {
-  const followHost = use(FollowHostContext)!;
+  const { ownsNavigation, follows, setFollows, lastFollowHrefRef, runRef } =
+    use(FollowHostContext)!;
   const href = decision.url.href;
   useEffect(() => {
     if (decision.type === 'leave') {
@@ -71,26 +78,34 @@ const FollowRedirect = ({
       return;
     }
     // a second navigate() to the same href while intercept is in-flight hangs
-    if (href === followHost.lastFollowHref.current) {
+    if (href === lastFollowHrefRef.current) {
       return;
     }
-    followHost.lastFollowHref.current = href;
-    const nextFollows = followHost.hostFollows.current + 1;
-    followHost.hostFollows.current = nextFollows;
-    if (followHost.ownsNavigation) {
+    lastFollowHrefRef.current = href;
+    const nextFollows = follows + 1;
+    setFollows(nextFollows);
+    if (ownsNavigation) {
       void window.navigation.navigate(href, {
         history: 'replace',
         state: { follows: nextFollows },
-        info: { scroll: false },
+        info: { scroll: false, follows: nextFollows },
       });
       return;
     }
-    void followHost.runRef.current(
+    void runRef.current(
       parseRoute(new URL(href, window.location.href)),
       new AbortController().signal,
       nextFollows,
     );
-  }, [decision.type, followHost, href]);
+  }, [
+    decision.type,
+    follows,
+    href,
+    lastFollowHrefRef,
+    ownsNavigation,
+    runRef,
+    setFollows,
+  ]);
   return null;
 };
 
@@ -169,7 +184,8 @@ class FollowBoundary extends Component<
 }
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
-  const followHost = use(FollowHostContext)!;
+  const { ownsNavigation, follows, setFollows, lastFollowHrefRef, runRef } =
+    use(FollowHostContext)!;
   const elements = use(useElementsPromise());
   const mergeElements = useMergeElements();
   const routeFallback = useInitialRoute(fallbackRoute);
@@ -181,7 +197,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   // hash-only navigations skip load; the host still has to report the current hash
   const [hash, setHash] = useState('');
   useEffect(() => {
-    if (!followHost.ownsNavigation) {
+    if (!ownsNavigation) {
       return;
     }
     const navigation = window.navigation;
@@ -192,63 +208,65 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     sync();
     navigation.addEventListener('currententrychange', sync);
     return () => navigation.removeEventListener('currententrychange', sync);
-  }, [followHost]);
+  }, [ownsNavigation]);
   const route = useMemo((): RouteProps => {
     const fromElements = getRouteFromElements(elements);
     return fromElements ? { ...fromElements, hash } : routeFallback;
   }, [elements, routeFallback, hash]);
-  const follows = followHost.hostFollows.current;
 
-  const run = useEffectEvent(
-    async (next: RouteProps, signal: AbortSignal, follows: number) => {
-      const base = resolvedRef.current;
-      const settled = getRouteFromElements(base) ?? routeFallback;
-      const outcome = await load(next, {
-        signal,
-        has404,
-        settled,
-        base,
-        follows,
+  const runImpl: FollowRun = async (next, signal, followCount) => {
+    const base = resolvedRef.current;
+    const settled = getRouteFromElements(base) ?? routeFallback;
+    const outcome = await load(next, {
+      signal,
+      has404,
+      settled,
+      base,
+      follows: followCount,
+    });
+    if (outcome.type === 'aborted') {
+      return;
+    }
+    if (outcome.type === 'external') {
+      window.location.replace(outcome.url.href);
+      throw outcome.error;
+    }
+    if (outcome.type === 'failed') {
+      throw outcome.error;
+    }
+    // intercept already committed the requested URL; a load-time follow
+    // that landed elsewhere still has to rewrite this entry
+    if (
+      ownsNavigation &&
+      outcome.url.href !== window.location.href &&
+      outcome.url.href !== getRouteUrl(next).href
+    ) {
+      window.history.replaceState(null, '', outcome.url.href);
+    }
+    if (outcome.type === 'reused') {
+      await mergeElements({
+        [ROUTE_ID]: [outcome.route.path, outcome.route.query],
       });
-      if (outcome.type === 'aborted') {
-        return;
-      }
-      if (outcome.type === 'external') {
-        window.location.replace(outcome.url.href);
-        throw outcome.error;
-      }
-      if (outcome.type === 'failed') {
-        throw outcome.error;
-      }
-      // intercept already committed the requested URL; a load-time follow
-      // that landed elsewhere still has to rewrite this entry
-      if (
-        followHost.ownsNavigation &&
-        outcome.url.href !== window.location.href &&
-        outcome.url.href !== getRouteUrl(next).href
-      ) {
-        window.history.replaceState(null, '', outcome.url.href);
-      }
-      if (outcome.type === 'reused') {
-        await mergeElements({
-          [ROUTE_ID]: [outcome.route.path, outcome.route.query],
-        });
-        return;
-      }
-      const patch = buildMergePatch(
-        { route: outcome.route, elements: outcome.elements },
-        resolvedRef.current,
-        base,
-        { settled },
-      );
-      await mergeElements(patch);
-      learnStaticFromElements(outcome.elements);
-    },
-  );
-  followHost.runRef.current = run;
+      return;
+    }
+    const patch = buildMergePatch(
+      { route: outcome.route, elements: outcome.elements },
+      resolvedRef.current,
+      base,
+      { settled },
+    );
+    await mergeElements(patch);
+    learnStaticFromElements(outcome.elements);
+  };
+
+  useLayoutEffect(() => {
+    runRef.current = runImpl;
+  });
+
+  const run = useEffectEvent(runImpl);
 
   useEffect(() => {
-    if (!followHost.ownsNavigation) {
+    if (!ownsNavigation) {
       return;
     }
     const navigation = window.navigation;
@@ -269,12 +287,18 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
         return;
       }
       if (event.navigationType !== 'replace') {
-        followHost.hostFollows.current = 0;
-        followHost.lastFollowHref.current = '';
+        setFollows(0);
+        lastFollowHrefRef.current = '';
       }
-      const info = event.info as { scroll?: boolean } | undefined;
+      const info = event.info as
+        { scroll?: boolean; follows?: number } | undefined;
       event.intercept({
-        handler: () => run(next, event.signal, followHost.hostFollows.current),
+        handler: () =>
+          run(
+            next,
+            event.signal,
+            typeof info?.follows === 'number' ? info.follows : 0,
+          ),
         // useSetSearch passes scroll: false; intercept defaults to after-transition
         ...(info?.scroll === false ? { scroll: 'manual' } : {}),
       });
@@ -282,7 +306,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     navigation.addEventListener('navigate', onNavigate);
     prefetchRoute({ path: '/hello/spike', query: '', hash: '' });
     return () => navigation.removeEventListener('navigate', onNavigate);
-  }, [followHost]);
+  }, [lastFollowHrefRef, ownsNavigation, setFollows]);
 
   const navigate = useCallback<RouterHost['navigate']>((href, opts) => {
     const result = window.navigation.navigate(href, {
@@ -312,11 +336,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
 
   return (
     <RouterHostContext value={host}>
-      {followHost.ownsNavigation ? (
-        <Slot id="root">{routeSlot}</Slot>
-      ) : (
-        routeSlot
-      )}
+      {ownsNavigation ? <Slot id="root">{routeSlot}</Slot> : routeSlot}
     </RouterHostContext>
   );
 };
@@ -331,29 +351,30 @@ export const NavRouter = ({
   // NavBinding remounts on every merge; this host does not. Entry state is
   // not instance-scoped (`window.navigation` is per document) and intercept
   // runs before the URL commits.
-  const hostFollows = useRef(0);
-  const lastFollowHref = useRef('');
-  const runRef = useRef<FollowHost['runRef']['current']>(async () => {});
+  const [follows, setFollows] = useState(0);
+  const lastFollowHrefRef = useRef('');
+  const runRef = useRef<FollowRun>(async () => {});
   const followHost = useMemo(
     (): FollowHost => ({
       ownsNavigation,
-      hostFollows,
-      lastFollowHref,
+      follows,
+      setFollows,
+      lastFollowHrefRef,
       runRef,
     }),
-    [ownsNavigation],
+    [follows, ownsNavigation],
   );
   const [fallback] = useState(
     () => initialRoute ?? parseRoute(new URL(window.location.href)),
   );
   // bounce as an inner initial RSC would HTTP-redirect the document and
   // consume the outer __WAKU_INITIAL_RSC__ payload
-  const [ready, setReady] = useState(ownsNavigation);
-  useEffect(() => {
-    if (!ownsNavigation) {
-      setReady(true);
-    }
-  }, [ownsNavigation]);
+  const isClient = useSyncExternalStore(
+    subscribeNever,
+    getClientTrue,
+    getServerFalse,
+  );
+  const ready = ownsNavigation || isClient;
   const initialRscPath = encodeRoutePath(fallback.path);
   const initialRscParams = useInitialRscParams(initialRscPath, fallback.query);
   if (!ready) {
