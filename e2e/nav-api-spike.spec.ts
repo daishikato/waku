@@ -133,6 +133,19 @@ test.describe('nav-api-spike imports', () => {
     );
   });
 
+  test('mix-b RSC is HTTP 404 so load can 404-follow', () => {
+    const src = readFileSync(
+      fileURLToPath(
+        new URL(
+          './fixtures/nav-api-spike/src/middleware/http-404-mix-b.ts',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    );
+    expect(src).toContain('/RSC/R/mix-b.txt');
+  });
+
   test('fixture sources import nothing from waku/router/client', () => {
     const root = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/', import.meta.url),
@@ -334,12 +347,15 @@ test.describe('nav-api-spike', () => {
     await page.goto(`http://localhost:${port}/mix`);
     await waitForHydration(page);
     await expect(page.getByTestId('mix')).toHaveText('mix');
-    // slot mix-a → /mix-b?mix=1 (1)
-    // load 404-follows to /404?mix=1 (2)
-    // slot 404 → /mix-b?mix=1 (3)
-    // load 404-follows to /404?mix=1 (4); path is already /404, so the
-    // boundary does not remount and the chain stalls. omitting load hops
-    // from host state leaves the count at 2.
+    // derived from the follow contract, not from a prior run:
+    //   slot mix-a → /mix-b?mix=1 (1)
+    //   load: mix-b RSC is HTTP 404, so decideFollow hops to /404?mix=1 (2)
+    //   slot 404 → /mix-b?mix=1 (3)
+    //   load 404-follows to /404?mix=1 (4); path is already /404, so the
+    //   boundary does not remount and the chain stalls.
+    // omitting setFollows(outcome.follows) resumes the second slot from 1
+    // and leaves the count at 2. a 200 404-page for mix-b skips both load
+    // hops and also leaves it at 2.
     await expect(
       page.getByTestId('mix-host').getByTestId('follow-count'),
     ).toHaveText('4');
@@ -351,6 +367,8 @@ test.describe('nav-api-spike', () => {
   test('a mixed slot and load follow chain stops at the follow limit', async ({
     page,
   }) => {
+    // mixcycle remounts FollowBoundary on each 404 slot throw; load hops
+    // to /404 in between. both share MAX_FOLLOWS_PER_NAVIGATION.
     test.setTimeout(60_000);
     await page.goto(`http://localhost:${port}/mix-budget`);
     await waitForHydration(page);
