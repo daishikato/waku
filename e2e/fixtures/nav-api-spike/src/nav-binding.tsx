@@ -52,14 +52,27 @@ const FollowRedirect = ({ error }: { error: unknown }) => {
   return null;
 };
 
-// the fetch can succeed with the throwing page still in the payload
+// the fetch can succeed with the throwing page still in the payload.
+// path changes remount via key; a query-only follow has to clear the held
+// error in place — remounting on query would rebuild the page on every setSearch
 class FollowBoundary extends Component<
-  { children: ReactNode },
-  { error: unknown | null }
+  { routeKey: string; children: ReactNode },
+  { error: unknown | null; routeKey: string }
 > {
-  state: { error: unknown | null } = { error: null };
+  state: { error: unknown | null; routeKey: string } = {
+    error: null,
+    routeKey: this.props.routeKey,
+  };
   static getDerivedStateFromError(error: unknown) {
     return { error };
+  }
+  static getDerivedStateFromProps(
+    props: { routeKey: string },
+    state: { routeKey: string },
+  ) {
+    return props.routeKey !== state.routeKey
+      ? { error: null, routeKey: props.routeKey }
+      : null;
   }
   render() {
     const { error } = this.state;
@@ -175,7 +188,10 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   return (
     <RouterHostContext value={host}>
       <Slot id="root">
-        <FollowBoundary key={route.path}>
+        <FollowBoundary
+          key={route.path}
+          routeKey={`${route.path}\0${route.query}`}
+        >
           <Slot id={getRouteSlotId(route.path)} />
         </FollowBoundary>
       </Slot>

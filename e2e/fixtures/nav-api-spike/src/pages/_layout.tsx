@@ -28,6 +28,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/old" data-testid="go-old">
             Old
           </a>
+          <a href="/canonical?v=old" data-testid="go-canonical">
+            Canonical
+          </a>
         </nav>
         {children}
       </div>

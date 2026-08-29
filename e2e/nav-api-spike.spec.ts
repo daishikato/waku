@@ -95,6 +95,16 @@ test.describe('nav-api-spike imports', () => {
     expect(src).toContain("info?.scroll === false ? { scroll: 'manual' } : {}");
   });
 
+  test('FollowBoundary remounts on path and resets on query', () => {
+    const bindingPath = fileURLToPath(
+      new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
+    );
+    const src = readFileSync(bindingPath, 'utf8');
+    expect(src).toContain('key={route.path}');
+    expect(src).toContain('routeKey={`${route.path}\\0${route.query}`}');
+    expect(src).toContain('getDerivedStateFromProps');
+  });
+
   test('fixture sources import nothing from waku/router/client', () => {
     const root = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/', import.meta.url),
@@ -199,6 +209,14 @@ test.describe('nav-api-spike', () => {
     await page.getByTestId('go-old').click();
     await expect(page.getByTestId('redirect-new')).toHaveText('New');
     await expect(page).toHaveURL(/\/new$/);
+  });
+
+  test('a same-path query redirect renders the target', async ({ page }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-canonical').click();
+    await expect(page.getByTestId('canonical')).toHaveText('Canonical new');
+    await expect(page).toHaveURL(/\/canonical\?v=new$/);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
