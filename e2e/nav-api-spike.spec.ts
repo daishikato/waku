@@ -246,13 +246,16 @@ test.describe('nav-api-spike', () => {
   });
 
   test('a query redirect cycle stops at the follow limit', async ({ page }) => {
-    test.setTimeout(60_000);
+    // 20 intercepted follows through Vite; the suite's 30s test timeout
+    // and a 30s expect both fire while the chain is still in flight on
+    // chromium-dev
+    test.slow();
     await page.goto(`http://localhost:${port}/`);
     await waitForHydration(page);
     await page.getByTestId('go-bounce').click();
     await expect(page.getByTestId('follow-error')).toHaveText(
       'too many redirect or 404 follows',
-      { timeout: 30_000 },
+      { timeout: 90_000 },
     );
     await expect(page).toHaveURL(/\/bounce\?v=[ab]$/);
   });
