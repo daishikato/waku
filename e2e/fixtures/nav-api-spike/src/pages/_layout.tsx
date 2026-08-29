@@ -37,6 +37,12 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/bounce?v=a" data-testid="go-bounce">
             Bounce
           </a>
+          <a href="/search?q=from-follow" data-testid="go-search-from-follow">
+            Search from follow
+          </a>
+          <a href="/mix-a" data-testid="go-mix">
+            Mix
+          </a>
         </nav>
         {children}
       </div>

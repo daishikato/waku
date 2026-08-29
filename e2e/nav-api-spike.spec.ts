@@ -117,6 +117,15 @@ test.describe('nav-api-spike imports', () => {
     expect(src).not.toMatch(/^let lastFollowHref/m);
     expect(src).not.toMatch(/^const lastFollowHref/m);
     expect(src).toContain('state: { follows: nextFollows }');
+    expect(src).toContain("typeof info?.follows === 'number'");
+    expect(src).not.toContain("event.navigationType !== 'replace'");
+    const chainIdx = src.indexOf("typeof info?.follows === 'number'");
+    const samePathIdx = src.indexOf(
+      'next.path === current.path && next.query === current.query',
+    );
+    expect(chainIdx).toBeGreaterThan(-1);
+    expect(chainIdx).toBeLessThan(samePathIdx);
+    expect(src).toContain('last.href === href && last.follows === follows');
   });
 
   test('fixture sources import nothing from waku/router/client', () => {
@@ -284,6 +293,46 @@ test.describe('nav-api-spike', () => {
     await expect(
       page.getByTestId('second-host').getByTestId('canonical'),
     ).toHaveText('Canonical new');
+  });
+
+  test('useSetSearch replace after a follow gets a fresh budget', async ({
+    page,
+  }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-search-from-follow').click();
+    await expect(page.getByTestId('search')).toHaveText('spent');
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('1');
+    await page.getByTestId('set-search-replace').click();
+    await expect(page.getByTestId('search')).toHaveText('x');
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('0');
+  });
+
+  test('a hash-only user navigation after a follow clears the count', async ({
+    page,
+  }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-search-from-follow').click();
+    await expect(page.getByTestId('search')).toHaveText('spent');
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('1');
+    await page.getByTestId('hash-a').click();
+    await expect(page).toHaveURL(/\/search\?q=spent#a$/);
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('0');
+  });
+
+  test('a load follow then a slot revisit is not skipped as a replay', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-mix').click();
+    await expect(page.getByTestId('follow-error')).toHaveText(
+      'too many redirect or 404 follows',
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('20');
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {

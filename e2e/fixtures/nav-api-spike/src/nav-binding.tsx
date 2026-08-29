@@ -50,11 +50,13 @@ type FollowRun = (
   follows: number,
 ) => Promise<void>;
 
+type LastFollow = { href: string; follows: number };
+
 type FollowHost = {
   ownsNavigation: boolean;
   follows: number;
   setFollows: (n: number | ((n: number) => number)) => void;
-  lastFollowHrefRef: { current: string };
+  lastFollowRef: { current: LastFollow | null };
   runRef: { current: FollowRun };
 };
 
@@ -69,7 +71,7 @@ const FollowRedirect = ({
 }: {
   decision: Extract<FollowDecision, { type: 'follow' | 'leave' }>;
 }) => {
-  const { ownsNavigation, follows, setFollows, lastFollowHrefRef, runRef } =
+  const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
     use(FollowHostContext)!;
   const href = decision.url.href;
   useEffect(() => {
@@ -77,11 +79,14 @@ const FollowRedirect = ({
       window.location.replace(href);
       return;
     }
-    // a second navigate() to the same href while intercept is in-flight hangs
-    if (href === lastFollowHrefRef.current) {
+    // a second navigate() to the same href while intercept is in-flight hangs.
+    // a later slot follow to that href is not a replay: load may have followed
+    // in between, so the captured count differs.
+    const last = lastFollowRef.current;
+    if (last && last.href === href && last.follows === follows) {
       return;
     }
-    lastFollowHrefRef.current = href;
+    lastFollowRef.current = { href, follows };
     const nextFollows = follows + 1;
     setFollows(nextFollows);
     if (ownsNavigation) {
@@ -101,7 +106,7 @@ const FollowRedirect = ({
     decision.type,
     follows,
     href,
-    lastFollowHrefRef,
+    lastFollowRef,
     ownsNavigation,
     runRef,
     setFollows,
@@ -184,7 +189,7 @@ class FollowBoundary extends Component<
 }
 
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
-  const { ownsNavigation, follows, setFollows, lastFollowHrefRef, runRef } =
+  const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
     use(FollowHostContext)!;
   const elements = use(useElementsPromise());
   const mergeElements = useMergeElements();
@@ -281,17 +286,21 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       if (dest.origin !== window.location.origin) {
         return;
       }
+      const info = event.info as
+        { scroll?: boolean; follows?: number } | undefined;
+      // replace is not "redirect"; only our follow metadata continues a chain.
+      // a hash-only user navigation never loads, but it is still a fresh chain.
+      if (typeof info?.follows === 'number') {
+        setFollows(info.follows);
+      } else {
+        setFollows(0);
+        lastFollowRef.current = null;
+      }
       const next = parseRoute(dest);
       const current = parseRoute(new URL(window.location.href));
       if (next.path === current.path && next.query === current.query) {
         return;
       }
-      if (event.navigationType !== 'replace') {
-        setFollows(0);
-        lastFollowHrefRef.current = '';
-      }
-      const info = event.info as
-        { scroll?: boolean; follows?: number } | undefined;
       event.intercept({
         handler: () =>
           run(
@@ -306,7 +315,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     navigation.addEventListener('navigate', onNavigate);
     prefetchRoute({ path: '/hello/spike', query: '', hash: '' });
     return () => navigation.removeEventListener('navigate', onNavigate);
-  }, [lastFollowHrefRef, ownsNavigation, setFollows]);
+  }, [lastFollowRef, ownsNavigation, setFollows]);
 
   const navigate = useCallback<RouterHost['navigate']>((href, opts) => {
     const result = window.navigation.navigate(href, {
@@ -352,14 +361,14 @@ export const NavRouter = ({
   // not instance-scoped (`window.navigation` is per document) and intercept
   // runs before the URL commits.
   const [follows, setFollows] = useState(0);
-  const lastFollowHrefRef = useRef('');
+  const lastFollowRef = useRef<LastFollow | null>(null);
   const runRef = useRef<FollowRun>(async () => {});
   const followHost = useMemo(
     (): FollowHost => ({
       ownsNavigation,
       follows,
       setFollows,
-      lastFollowHrefRef,
+      lastFollowRef,
       runRef,
     }),
     [follows, ownsNavigation],
