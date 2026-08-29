@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 import { SearchCodecs } from '../components/search-codecs.js';
+import { OwningFollowCount } from '../nav-binding.js';
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <SearchCodecs>
       <div>
+        <OwningFollowCount />
         <title>nav-api-spike</title>
         <nav>
           <a href="/" data-testid="go-home">
@@ -40,7 +42,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/search?q=from-follow" data-testid="go-search-from-follow">
             Search from follow
           </a>
-          <a href="/mix-a" data-testid="go-mix">
+          <a href="/mix" data-testid="go-mix">
             Mix
           </a>
         </nav>

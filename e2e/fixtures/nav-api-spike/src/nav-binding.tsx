@@ -74,14 +74,12 @@ const FollowRedirect = ({
   const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
     use(FollowHostContext)!;
   const href = decision.url.href;
-  useEffect(() => {
-    if (decision.type === 'leave') {
-      window.location.replace(href);
-      return;
-    }
-    // a second navigate() to the same href while intercept is in-flight hangs.
-    // a later slot follow to that href is not a replay: load may have followed
-    // in between, so the captured count differs.
+  // a second navigate() to the same href while intercept is in-flight hangs.
+  // Strict Mode remounts this effect at the same captured count; a later slot
+  // visit after a load-time hop does not. setFollows re-renders with
+  // follows+1 — still this dispatch — so the event reads follows without
+  // listing it as a dependency.
+  const startFollow = useEffectEvent(() => {
     const last = lastFollowRef.current;
     if (last && last.href === href && last.follows === follows) {
       return;
@@ -102,15 +100,14 @@ const FollowRedirect = ({
       new AbortController().signal,
       nextFollows,
     );
-  }, [
-    decision.type,
-    follows,
-    href,
-    lastFollowRef,
-    ownsNavigation,
-    runRef,
-    setFollows,
-  ]);
+  });
+  useEffect(() => {
+    if (decision.type === 'leave') {
+      window.location.replace(href);
+      return;
+    }
+    startFollow();
+  }, [decision.type, href]);
   return null;
 };
 
@@ -391,12 +388,15 @@ export const NavRouter = ({
   }
   return (
     <FollowHostContext value={followHost}>
-      <p data-testid={ownsNavigation ? 'owning-follow-count' : 'follow-count'}>
-        {follows}
-      </p>
+      {ownsNavigation ? null : <p data-testid="follow-count">{follows}</p>}
       <Root initialRscPath={initialRscPath} initialRscParams={initialRscParams}>
         <NavBinding fallbackRoute={fallback} />
       </Root>
     </FollowHostContext>
   );
+};
+
+export const OwningFollowCount = () => {
+  const host = use(FollowHostContext);
+  return <p data-testid="owning-follow-count">{host?.follows ?? 0}</p>;
 };

@@ -126,6 +126,10 @@ test.describe('nav-api-spike imports', () => {
     expect(chainIdx).toBeGreaterThan(-1);
     expect(chainIdx).toBeLessThan(samePathIdx);
     expect(src).toContain('last.href === href && last.follows === follows');
+    expect(src).toContain('data-testid="owning-follow-count"');
+    expect(src).not.toContain(
+      "ownsNavigation ? 'owning-follow-count' : 'follow-count'",
+    );
   });
 
   test('fixture sources import nothing from waku/router/client', () => {
@@ -269,7 +273,9 @@ test.describe('nav-api-spike', () => {
     await expect(page).toHaveURL(/\/bounce\?v=[ab]$/);
   });
 
-  test('two spike instances do not share a follow budget', async ({ page }) => {
+  test('the owning follow count stays zero while an inner host exhausts', async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto(`http://localhost:${port}/two-hosts`);
     await waitForHydration(page);
@@ -324,15 +330,15 @@ test.describe('nav-api-spike', () => {
   test('a load follow then a slot revisit is not skipped as a replay', async ({
     page,
   }) => {
-    test.setTimeout(60_000);
-    await page.goto(`http://localhost:${port}/`);
+    await page.goto(`http://localhost:${port}/mix`);
     await waitForHydration(page);
-    await page.getByTestId('go-mix').click();
-    await expect(page.getByTestId('follow-error')).toHaveText(
-      'too many redirect or 404 follows',
-      { timeout: 30_000 },
-    );
-    await expect(page.getByTestId('owning-follow-count')).toHaveText('20');
+    await expect(page.getByTestId('mix')).toHaveText('mix');
+    await expect(
+      page.getByTestId('mix-host').getByTestId('follow-count'),
+    ).toHaveText('2');
+    await expect(
+      page.getByTestId('mix-host').getByTestId('follow-error'),
+    ).toHaveCount(0);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
