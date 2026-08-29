@@ -382,6 +382,9 @@ export const NavRouter = ({
   }
   return (
     <FollowHostContext value={followHost}>
+      <p data-testid={ownsNavigation ? 'owning-follow-count' : 'follow-count'}>
+        {follows}
+      </p>
       <Root initialRscPath={initialRscPath} initialRscParams={initialRscParams}>
         <NavBinding fallbackRoute={fallback} />
       </Root>

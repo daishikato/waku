@@ -268,9 +268,22 @@ test.describe('nav-api-spike', () => {
     await expect(
       page.getByTestId('second-host').getByTestId('follow-error'),
     ).toHaveText('too many redirect or 404 follows', { timeout: 30_000 });
-    await page.getByTestId('go-canonical-from-two-hosts').click();
-    await expect(page.getByTestId('canonical')).toHaveText('Canonical new');
-    await expect(page).toHaveURL(/\/canonical\?v=new$/);
+    await expect(
+      page.getByTestId('second-host').getByTestId('follow-count'),
+    ).toHaveText('20');
+    await expect(page.getByTestId('owning-follow-count')).toHaveText('0');
+  });
+
+  test('two spike instances can follow the same href', async ({ page }) => {
+    await page.goto(`http://localhost:${port}/two-same-href`);
+    await waitForHydration(page);
+    await expect(page.getByTestId('two-same-href')).toHaveText('two same href');
+    await expect(
+      page.getByTestId('first-host').getByTestId('canonical'),
+    ).toHaveText('Canonical new');
+    await expect(
+      page.getByTestId('second-host').getByTestId('canonical'),
+    ).toHaveText('Canonical new');
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
