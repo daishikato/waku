@@ -108,6 +108,16 @@ test.describe('nav-api-spike imports', () => {
     expect(src).toContain('decideFollow');
   });
 
+  test('slot follow count is not module state', () => {
+    const bindingPath = fileURLToPath(
+      new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
+    );
+    const src = readFileSync(bindingPath, 'utf8');
+    expect(src).not.toMatch(/\bslotFollows\b/);
+    expect(src).not.toMatch(/\blastFollowHref\b/);
+    expect(src).toContain('state: { follows: nextFollows }');
+  });
+
   test('fixture sources import nothing from waku/router/client', () => {
     const root = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/', import.meta.url),
@@ -244,6 +254,19 @@ test.describe('nav-api-spike', () => {
       { timeout: 30_000 },
     );
     await expect(page).toHaveURL(/\/bounce\?v=[ab]$/);
+  });
+
+  test('two spike instances do not share a follow budget', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.goto(`http://localhost:${port}/two-hosts`);
+    await waitForHydration(page);
+    await expect(page.getByTestId('two-hosts')).toHaveText('two hosts');
+    await expect(
+      page.getByTestId('second-host').getByTestId('follow-error'),
+    ).toHaveText('too many redirect or 404 follows', { timeout: 30_000 });
+    await page.getByTestId('go-canonical-from-two-hosts').click();
+    await expect(page.getByTestId('canonical')).toHaveText('Canonical new');
+    await expect(page).toHaveURL(/\/canonical\?v=new$/);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
