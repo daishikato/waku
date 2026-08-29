@@ -15,20 +15,24 @@ import type { ReactNode } from 'react';
 import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
-  unstable_getErrorInfo as getErrorInfo,
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from 'waku/minimal/client';
 import {
+  unstable_MAX_FOLLOWS_PER_NAVIGATION as MAX_FOLLOWS_PER_NAVIGATION,
   unstable_ROUTE_ID as ROUTE_ID,
+  type Unstable_FollowDecision as FollowDecision,
   type Unstable_RouteProps as RouteProps,
   type Unstable_RouterHost as RouterHost,
   unstable_RouterHostContext as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
+  unstable_decideFollow as decideFollow,
   unstable_encodeRoutePath as encodeRoutePath,
   unstable_getRouteFromElements as getRouteFromElements,
   unstable_getRouteSlotId as getRouteSlotId,
+  unstable_getRouteUrl as getRouteUrl,
   unstable_has404FromElements as has404FromElements,
+  unstable_isFollowable as isFollowable,
   unstable_learnStaticFromElements as learnStaticFromElements,
   unstable_load as load,
   unstable_parseRoute as parseRoute,
@@ -38,25 +42,59 @@ import {
 } from 'waku/router/client-core';
 import { settleNavigateFinished } from './settle-navigate-finished.js';
 
-const FollowRedirect = ({ error }: { error: unknown }) => {
-  const location = getErrorInfo(error)?.location;
+const FollowRedirect = ({
+  decision,
+  follows,
+}: {
+  decision: Extract<FollowDecision, { type: 'follow' | 'leave' }>;
+  follows: number;
+}) => {
+  const href = decision.url.href;
   useEffect(() => {
-    if (!location) {
+    if (decision.type === 'leave') {
+      window.location.replace(href);
       return;
     }
-    void window.navigation.navigate(location, { history: 'replace' });
-  }, [location]);
-  if (!location) {
-    throw error;
-  }
+    void window.navigation.navigate(href, {
+      history: 'replace',
+      info: { follows: follows + 1 },
+    });
+  }, [decision.type, href, follows]);
   return null;
 };
 
+// slot-thrown stop/none must leave this boundary so the fallback can render
+class FollowFailure extends Component<
+  { children: ReactNode },
+  { error: unknown | null }
+> {
+  state: { error: unknown | null } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  render() {
+    const { error } = this.state;
+    if (error !== null) {
+      const message = error instanceof Error ? error.message : String(error);
+      return <p data-testid="follow-error">{message}</p>;
+    }
+    return this.props.children;
+  }
+}
+
 // the fetch can succeed with the throwing page still in the payload.
-// path changes remount via key; a query-only follow has to clear the held
-// error in place — remounting on query would rebuild the page on every setSearch
+// path changes remount via key; query/hash follows clear the held error in
+// place — remounting on query would rebuild the page on every setSearch.
+// a hash-only slot redirect cannot be resolved (no refetch); decideFollow
+// must stop it as a loop after the address bar moves.
 class FollowBoundary extends Component<
-  { routeKey: string; children: ReactNode },
+  {
+    routeKey: string;
+    route: RouteProps;
+    has404: boolean;
+    followsRef: { current: number };
+    children: ReactNode;
+  },
   { error: unknown | null; routeKey: string }
 > {
   state: { error: unknown | null; routeKey: string } = {
@@ -77,7 +115,25 @@ class FollowBoundary extends Component<
   render() {
     const { error } = this.state;
     if (error !== null) {
-      return <FollowRedirect error={error} />;
+      if (!isFollowable(error)) {
+        throw error;
+      }
+      const { route, has404, followsRef } = this.props;
+      const decision = decideFollow(
+        error,
+        {
+          route,
+          url: getRouteUrl(route),
+          follows: followsRef.current,
+        },
+        { has404, maxFollows: MAX_FOLLOWS_PER_NAVIGATION },
+      );
+      if (decision.type === 'stop' || decision.type === 'none') {
+        throw decision.type === 'stop' ? decision.error : error;
+      }
+      return (
+        <FollowRedirect decision={decision} follows={followsRef.current} />
+      );
     }
     return this.props.children;
   }
@@ -92,6 +148,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     resolvedRef.current = elements;
   }, [elements]);
   const has404 = has404FromElements(elements);
+  const followsRef = useRef(0);
   // hash-only navigations skip load; the host still has to report the current hash
   const [hash, setHash] = useState('');
   useEffect(() => {
@@ -109,39 +166,48 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     return fromElements ? { ...fromElements, hash } : routeFallback;
   }, [elements, routeFallback, hash]);
 
-  const run = useEffectEvent(async (next: RouteProps, signal: AbortSignal) => {
-    const base = resolvedRef.current;
-    const settled = getRouteFromElements(base) ?? routeFallback;
-    const outcome = await load(next, { signal, has404, settled, base });
-    if (outcome.type === 'aborted') {
-      return;
-    }
-    if (outcome.type === 'external') {
-      window.location.replace(outcome.url.href);
-      throw outcome.error;
-    }
-    if (outcome.type === 'failed') {
-      throw outcome.error;
-    }
-    // intercept already committed the requested URL; a follow must rewrite this entry
-    if (outcome.url.href !== window.location.href) {
-      window.history.replaceState(null, '', outcome.url.href);
-    }
-    if (outcome.type === 'reused') {
-      await mergeElements({
-        [ROUTE_ID]: [outcome.route.path, outcome.route.query],
+  const run = useEffectEvent(
+    async (next: RouteProps, signal: AbortSignal, follows: number) => {
+      const base = resolvedRef.current;
+      const settled = getRouteFromElements(base) ?? routeFallback;
+      const outcome = await load(next, {
+        signal,
+        has404,
+        settled,
+        base,
+        follows,
       });
-      return;
-    }
-    const patch = buildMergePatch(
-      { route: outcome.route, elements: outcome.elements },
-      resolvedRef.current,
-      base,
-      { settled },
-    );
-    await mergeElements(patch);
-    learnStaticFromElements(outcome.elements);
-  });
+      if (outcome.type === 'aborted') {
+        return;
+      }
+      followsRef.current = outcome.follows;
+      if (outcome.type === 'external') {
+        window.location.replace(outcome.url.href);
+        throw outcome.error;
+      }
+      if (outcome.type === 'failed') {
+        throw outcome.error;
+      }
+      // intercept already committed the requested URL; a follow must rewrite this entry
+      if (outcome.url.href !== window.location.href) {
+        window.history.replaceState(null, '', outcome.url.href);
+      }
+      if (outcome.type === 'reused') {
+        await mergeElements({
+          [ROUTE_ID]: [outcome.route.path, outcome.route.query],
+        });
+        return;
+      }
+      const patch = buildMergePatch(
+        { route: outcome.route, elements: outcome.elements },
+        resolvedRef.current,
+        base,
+        { settled },
+      );
+      await mergeElements(patch);
+      learnStaticFromElements(outcome.elements);
+    },
+  );
 
   useEffect(() => {
     const navigation = window.navigation;
@@ -161,9 +227,10 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       if (next.path === current.path && next.query === current.query) {
         return;
       }
-      const info = event.info as { scroll?: boolean } | undefined;
+      const info = event.info as
+        { scroll?: boolean; follows?: number } | undefined;
       event.intercept({
-        handler: () => run(next, event.signal),
+        handler: () => run(next, event.signal, info?.follows ?? 0),
         // useSetSearch passes scroll: false; intercept defaults to after-transition
         ...(info?.scroll === false ? { scroll: 'manual' } : {}),
       });
@@ -188,12 +255,17 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   return (
     <RouterHostContext value={host}>
       <Slot id="root">
-        <FollowBoundary
-          key={route.path}
-          routeKey={`${route.path}\0${route.query}`}
-        >
-          <Slot id={getRouteSlotId(route.path)} />
-        </FollowBoundary>
+        <FollowFailure key={route.path}>
+          <FollowBoundary
+            key={route.path}
+            routeKey={`${route.path}\0${route.query}\0${route.hash}`}
+            route={route}
+            has404={has404}
+            followsRef={followsRef}
+          >
+            <Slot id={getRouteSlotId(route.path)} />
+          </FollowBoundary>
+        </FollowFailure>
       </Slot>
     </RouterHostContext>
   );

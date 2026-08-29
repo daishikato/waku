@@ -31,6 +31,12 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/canonical?v=old" data-testid="go-canonical">
             Canonical
           </a>
+          <a href="/hash-only" data-testid="go-hash-only">
+            Hash only
+          </a>
+          <a href="/bounce?v=a" data-testid="go-bounce">
+            Bounce
+          </a>
         </nav>
         {children}
       </div>

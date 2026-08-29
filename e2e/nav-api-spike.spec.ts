@@ -101,8 +101,11 @@ test.describe('nav-api-spike imports', () => {
     );
     const src = readFileSync(bindingPath, 'utf8');
     expect(src).toContain('key={route.path}');
-    expect(src).toContain('routeKey={`${route.path}\\0${route.query}`}');
+    expect(src).toContain(
+      'routeKey={`${route.path}\\0${route.query}\\0${route.hash}`}',
+    );
     expect(src).toContain('getDerivedStateFromProps');
+    expect(src).toContain('decideFollow');
   });
 
   test('fixture sources import nothing from waku/router/client', () => {
@@ -217,6 +220,28 @@ test.describe('nav-api-spike', () => {
     await page.getByTestId('go-canonical').click();
     await expect(page.getByTestId('canonical')).toHaveText('Canonical new');
     await expect(page).toHaveURL(/\/canonical\?v=new$/);
+  });
+
+  test('a hash-only slot redirect surfaces a follow error', async ({
+    page,
+  }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-hash-only').click();
+    await expect(page.getByTestId('follow-error')).toHaveText(
+      'detected a navigation loop',
+    );
+    await expect(page).toHaveURL(/\/hash-only#details$/);
+  });
+
+  test('a query redirect cycle stops at the follow limit', async ({ page }) => {
+    await page.goto(`http://localhost:${port}/`);
+    await waitForHydration(page);
+    await page.getByTestId('go-bounce').click();
+    await expect(page.getByTestId('follow-error')).toHaveText(
+      'too many redirect or 404 follows',
+    );
+    await expect(page).toHaveURL(/\/bounce\?v=a$/);
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
