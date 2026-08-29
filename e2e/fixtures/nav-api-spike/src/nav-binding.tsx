@@ -236,6 +236,11 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     if (outcome.type === 'failed') {
       throw outcome.error;
     }
+    // slot follows already incremented the host; a later slot must resume
+    // from load-time hops too or the mixed chain under-counts
+    if (outcome.type === 'reused' || outcome.type === 'loaded') {
+      setFollows(outcome.follows);
+    }
     // intercept already committed the requested URL; a load-time follow
     // that landed elsewhere still has to rewrite this entry
     if (

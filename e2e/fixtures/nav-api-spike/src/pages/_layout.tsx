@@ -45,6 +45,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           <a href="/mix" data-testid="go-mix">
             Mix
           </a>
+          <a href="/mix-budget" data-testid="go-mix-budget">
+            Mix budget
+          </a>
         </nav>
         {children}
       </div>

@@ -126,6 +126,7 @@ test.describe('nav-api-spike imports', () => {
     expect(chainIdx).toBeGreaterThan(-1);
     expect(chainIdx).toBeLessThan(samePathIdx);
     expect(src).toContain('last.href === href && last.follows === follows');
+    expect(src).toContain('setFollows(outcome.follows)');
     expect(src).toContain('data-testid="owning-follow-count"');
     expect(src).not.toContain(
       "ownsNavigation ? 'owning-follow-count' : 'follow-count'",
@@ -333,12 +334,33 @@ test.describe('nav-api-spike', () => {
     await page.goto(`http://localhost:${port}/mix`);
     await waitForHydration(page);
     await expect(page.getByTestId('mix')).toHaveText('mix');
+    // slot mix-a → /mix-b?mix=1 (1)
+    // load 404-follows to /404?mix=1 (2)
+    // slot 404 → /mix-b?mix=1 (3)
+    // load 404-follows to /404?mix=1 (4); path is already /404, so the
+    // boundary does not remount and the chain stalls. omitting load hops
+    // from host state leaves the count at 2.
     await expect(
       page.getByTestId('mix-host').getByTestId('follow-count'),
-    ).toHaveText('2');
+    ).toHaveText('4');
     await expect(
       page.getByTestId('mix-host').getByTestId('follow-error'),
     ).toHaveCount(0);
+  });
+
+  test('a mixed slot and load follow chain stops at the follow limit', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.goto(`http://localhost:${port}/mix-budget`);
+    await waitForHydration(page);
+    await expect(page.getByTestId('mix-budget')).toHaveText('mix budget');
+    await expect(
+      page.getByTestId('mix-budget-host').getByTestId('follow-error'),
+    ).toHaveText('too many redirect or 404 follows', { timeout: 30_000 });
+    await expect(
+      page.getByTestId('mix-budget-host').getByTestId('follow-count'),
+    ).toHaveText('20');
   });
 
   test('setSearch does not reset scroll', async ({ page }) => {
