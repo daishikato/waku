@@ -19,9 +19,9 @@ import {
   useMergeElements_UNSTABLE as useMergeElements,
 } from 'waku/minimal/client';
 import {
+  type Unstable_FollowDecision as FollowDecision,
   unstable_MAX_FOLLOWS_PER_NAVIGATION as MAX_FOLLOWS_PER_NAVIGATION,
   unstable_ROUTE_ID as ROUTE_ID,
-  type Unstable_FollowDecision as FollowDecision,
   type Unstable_RouteProps as RouteProps,
   type Unstable_RouterHost as RouterHost,
   unstable_RouterHostContext as RouterHostContext,

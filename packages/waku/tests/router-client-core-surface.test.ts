@@ -4,13 +4,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import * as clientCore from '../src/router/client-core.js';
-import * as client from '../src/router/client.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
   isFollowable,
 } from '../src/router/client-core-utils/error-route.js';
+import * as clientCore from '../src/router/client-core.js';
+import * as client from '../src/router/client.js';
 
 const routerSrc = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -38,9 +38,9 @@ describe('waku/router/client-core surface', () => {
       'unstable_canReuseStaticRoute',
       'unstable_clearCaches',
       'unstable_createRscParams',
+      'unstable_decideFollow',
       'unstable_decodeRoutePath',
       'unstable_decodeSliceId',
-      'unstable_decideFollow',
       'unstable_encodeRoutePath',
       'unstable_encodeSliceId',
       'unstable_getComponentIds',
