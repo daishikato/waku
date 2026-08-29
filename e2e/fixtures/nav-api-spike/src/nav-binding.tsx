@@ -46,6 +46,7 @@ import { settleNavigateFinished } from './settle-navigate-finished.js';
 type FollowHost = {
   ownsNavigation: boolean;
   hostFollows: { current: number };
+  lastFollowHref: { current: string };
   runRef: {
     current: (
       next: RouteProps,
@@ -69,6 +70,11 @@ const FollowRedirect = ({
       window.location.replace(href);
       return;
     }
+    // a second navigate() to the same href while intercept is in-flight hangs
+    if (href === followHost.lastFollowHref.current) {
+      return;
+    }
+    followHost.lastFollowHref.current = href;
     const nextFollows = followHost.hostFollows.current + 1;
     followHost.hostFollows.current = nextFollows;
     if (followHost.ownsNavigation) {
@@ -264,6 +270,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       }
       if (event.navigationType !== 'replace') {
         followHost.hostFollows.current = 0;
+        followHost.lastFollowHref.current = '';
       }
       const info = event.info as { scroll?: boolean } | undefined;
       event.intercept({
@@ -325,9 +332,15 @@ export const NavRouter = ({
   // not instance-scoped (`window.navigation` is per document) and intercept
   // runs before the URL commits.
   const hostFollows = useRef(0);
+  const lastFollowHref = useRef('');
   const runRef = useRef<FollowHost['runRef']['current']>(async () => {});
   const followHost = useMemo(
-    (): FollowHost => ({ ownsNavigation, hostFollows, runRef }),
+    (): FollowHost => ({
+      ownsNavigation,
+      hostFollows,
+      lastFollowHref,
+      runRef,
+    }),
     [ownsNavigation],
   );
   const [fallback] = useState(

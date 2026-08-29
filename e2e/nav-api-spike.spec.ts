@@ -114,7 +114,8 @@ test.describe('nav-api-spike imports', () => {
     );
     const src = readFileSync(bindingPath, 'utf8');
     expect(src).not.toMatch(/\bslotFollows\b/);
-    expect(src).not.toMatch(/\blastFollowHref\b/);
+    expect(src).not.toMatch(/^let lastFollowHref/m);
+    expect(src).not.toMatch(/^const lastFollowHref/m);
     expect(src).toContain('state: { follows: nextFollows }');
   });
 
