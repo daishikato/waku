@@ -2,20 +2,19 @@
 
 Seven things the four migrations in this directory turned up, in the order they
 were hit. Each was reproduced against `main`; where the repository's own fixtures
-can show the problem, the repro uses those instead of the examples.
+can show the problem, the repro uses those instead of the examples. Three were
+already known, two need filing, and one turned out to be solvable in application
+code.
 
-| # | Finding | Kind | Severity |
-| --- | --- | --- | --- |
-| 1 | Layout metadata cannot be overridden by a page | behaviour + docs | high for migrations |
-| 2 | Every stylesheet emits an invalid `as="stylesheet"` preload | upstream React | cosmetic |
-| 3 | Hono middleware cannot protect routes the way Next.js middleware does | behaviour + docs | high, security-relevant |
-| 4 | A cookie set by a server action is invisible to the render that follows | missing API | high |
-| 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | **bug** | looks like a release blocker |
-| 6 | `unstable_rerenderRoute` is undocumented | docs | medium |
-| 7 | `useOptimistic` + server action silently reverts without a refresh | docs | medium |
-
-Findings 6 and 7 are the same missing sentence seen from two directions, and 4
-would mostly disappear behind a cookie API.
+| # | Finding | Status |
+| --- | --- | --- |
+| 1 | Layout metadata cannot be overridden by a page | already tracked: [#1903](https://github.com/wakujs/waku/issues/1903) |
+| 2 | Every stylesheet emits an invalid `as="stylesheet"` preload | upstream React; same mechanism as [#1964](https://github.com/wakujs/waku/issues/1964) |
+| 3 | Hono middleware cannot protect routes the way Next.js middleware does | **to file** — security-relevant, fails open |
+| 4 | A cookie set by a server action is invisible to the render that follows | solvable in userland; docs/recipe gap |
+| 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | already tracked: [#2280](https://github.com/wakujs/waku/issues/2280) |
+| 6 | `unstable_rerenderRoute` is undocumented | folded into 7 |
+| 7 | A server action that does not redirect re-renders nothing, breaking `useOptimistic` | **to file** |
 
 ## 1. Layout metadata is not overridable by a page (title/description/og:*)
 
@@ -255,3 +254,50 @@ there: the code looks right, the action succeeds, and the UI just does not chang
 documented — "an action that does not redirect does not re-render anything; ask
 for it". This and finding 6 are the same missing sentence in the README's
 Mutations section.
+
+
+## Follow-ups from review
+
+### Finding 4 does not need a Waku change
+
+The request-scoped cookie jar in `nextjs-dashboard` and `nextjs-commerce` is
+about fifty lines of ordinary application code and needs nothing from the
+framework. It is the only userland route that works, though — the more obvious
+Hono-native one silently does not:
+
+```ts
+// src/middleware/context-storage.ts
+import { contextStorage } from 'hono/context-storage';
+export default () => contextStorage();
+
+// anywhere in server code
+getContext().header('set-cookie', value, { append: true });
+```
+
+This type-checks, builds, throws nothing at runtime, and the header never
+reaches the response: Waku's handler returns its own `Response`, which replaces
+`c.res` and drops Hono's prepared headers. Verified by logging in — no
+`Set-Cookie`, no error, and the app quietly stays logged out.
+
+So the working recipe is specifically: middleware that wraps `next()` in an
+`AsyncLocalStorage` scope and rebuilds `c.res` with the queued headers appended,
+plus a read-through so a cookie written during the request is visible to the
+render that follows it. That last part is the non-obvious half, and without it
+login-then-redirect fails.
+
+Worth a recipe in the Request Context guide, which currently shows only the
+write half, and shows it as middleware reading a cookie it already had.
+
+### Finding 3 in numbers
+
+With middleware as the only guard and no session cookie:
+
+```
+GET /dashboard                    -> 302  Location: /login
+GET /RSC/R/dashboard.txt?query=   -> 200  24911 bytes
+```
+
+The 24 KB payload is the rendered dashboard, including the figures it exists to
+protect (`$1,006.26`, `$1,256.32`, per-invoice amounts, customer names). In a
+browser, a visitor with no cookies clicking a `<Link to="/dashboard">` gets a
+rendered dashboard.
