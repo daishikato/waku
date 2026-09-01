@@ -19,12 +19,12 @@ This guide is written from four migrations of real Next.js apps, which live in
 [`examples/`](https://github.com/wakujs/waku/tree/main/examples) in the Waku
 repository and are referenced throughout:
 
-| Example | Migrated from | What it exercises |
-| --- | --- | --- |
-| `nextjs-blog-starter` | `vercel/next.js` `examples/blog-starter` | static generation, metadata, markdown, CSS modules |
-| `nextjs-dashboard` | `vercel/next-learn` `dashboard/final-example` | auth, a database, server actions, streaming, search |
-| `nextjs-commerce` | `vercel/commerce` | caching, cookies, optimistic UI, sitemap and OG images |
-| `nextjs-photo-modal` | `vercel/nextgram` | parallel and intercepting routes |
+| Example               | Migrated from                                 | What it exercises                                      |
+| --------------------- | --------------------------------------------- | ------------------------------------------------------ |
+| `nextjs-blog-starter` | `vercel/next.js` `examples/blog-starter`      | static generation, metadata, markdown, CSS modules     |
+| `nextjs-dashboard`    | `vercel/next-learn` `dashboard/final-example` | auth, a database, server actions, streaming, search    |
+| `nextjs-commerce`     | `vercel/commerce`                             | caching, cookies, optimistic UI, sitemap and OG images |
+| `nextjs-photo-modal`  | `vercel/nextgram`                             | parallel and intercepting routes                       |
 
 ## The shape of the project
 
@@ -119,7 +119,9 @@ hoists any `<title>`, `<meta>` and `<link>` into the document head, so
 "generated" metadata is just data you already fetched:
 
 ```tsx
-export default async function ProductPage({ handle }: PageProps<'/product/[handle]'>) {
+export default async function ProductPage({
+  handle,
+}: PageProps<'/product/[handle]'>) {
   const product = await getProduct(handle);
   return (
     <>
@@ -140,15 +142,15 @@ equivalent of the `title.template` pattern; write the full title on each page.
 
 ## Routing APIs
 
-| Next.js | Waku |
-| --- | --- |
-| `import Link from 'next/link'`, `<Link href>` | `import { Link } from 'waku'`, `<Link to>` |
-| `useRouter()` from `next/navigation` | `useRouter()` from `waku` |
-| `usePathname()` | `useRouter().path` |
-| `useSearchParams()` | `new URLSearchParams(useRouter().query)` |
-| `redirect()` | `unstable_redirect()` from `waku/router/server` |
-| `notFound()` | `unstable_notFound()` from `waku/router/server` |
-| `revalidatePath()` | `unstable_rerenderRoute(path, query)` |
+| Next.js                                       | Waku                                            |
+| --------------------------------------------- | ----------------------------------------------- |
+| `import Link from 'next/link'`, `<Link href>` | `import { Link } from 'waku'`, `<Link to>`      |
+| `useRouter()` from `next/navigation`          | `useRouter()` from `waku`                       |
+| `usePathname()`                               | `useRouter().path`                              |
+| `useSearchParams()`                           | `new URLSearchParams(useRouter().query)`        |
+| `redirect()`                                  | `unstable_redirect()` from `waku/router/server` |
+| `notFound()`                                  | `unstable_notFound()` from `waku/router/server` |
+| `revalidatePath()`                            | `unstable_rerenderRoute(path, query)`           |
 
 `useSearchParams()` in Next.js opts a page into client rendering and is usually
 wrapped in `<Suspense>`; Waku's `useRouter()` carries no such requirement, so
@@ -172,16 +174,16 @@ favour: match it against a list of known routes instead of casting.
 
 ## Files that were conventions
 
-| Next.js | Waku |
-| --- | --- |
-| `loading.tsx` | a `<Suspense fallback>` where you want it |
-| `error.tsx` | an error boundary you place, e.g. `react-error-boundary` |
-| `not-found.tsx`, per segment | one `src/pages/404.tsx` for the app |
-| `template.tsx` | no equivalent; remount with a `key` |
-| `default.tsx` | no equivalent (see parallel routes below) |
-| `sitemap.ts`, `robots.ts` | API routes that return the XML or text |
-| `opengraph-image.tsx` | an API route; `satori` + `@resvg/resvg-js` for PNG |
-| `route.ts` | `src/pages/_api/*.ts` exporting `GET`, `POST`, … |
+| Next.js                      | Waku                                                     |
+| ---------------------------- | -------------------------------------------------------- |
+| `loading.tsx`                | a `<Suspense fallback>` where you want it                |
+| `error.tsx`                  | an error boundary you place, e.g. `react-error-boundary` |
+| `not-found.tsx`, per segment | one `src/pages/404.tsx` for the app                      |
+| `template.tsx`               | no equivalent; remount with a `key`                      |
+| `default.tsx`                | no equivalent (see parallel routes below)                |
+| `sitemap.ts`, `robots.ts`    | API routes that return the XML or text                   |
+| `opengraph-image.tsx`        | an API route; `satori` + `@resvg/resvg-js` for PNG       |
+| `route.ts`                   | `src/pages/_api/*.ts` exporting `GET`, `POST`, …         |
 
 Losing per-segment `not-found.tsx` is a real reduction: `notFound()` anywhere in
 the app renders the same `404.tsx`.
@@ -219,7 +221,7 @@ middleware opens an `AsyncLocalStorage` around the request, server actions push
 `Set-Cookie` strings into it, and the middleware attaches them on the way out.
 
 Make the jar readable as well as writable. `redirect()` resolves on the server, so
-the destination renders *inside the same request*, where request headers still do
+the destination renders _inside the same request_, where request headers still do
 not carry the cookie you just queued. Without a read-through, logging in sets the
 session and then bounces the user straight back to the login page.
 
