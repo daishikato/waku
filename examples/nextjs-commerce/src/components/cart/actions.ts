@@ -91,7 +91,7 @@ export async function updateItemQuantity(
 
 export async function redirectToCheckout() {
   let cart = await getCart();
-  redirect(cart!.checkoutUrl as never);
+  redirect(cart!.checkoutUrl as never, 303);
 }
 
 export async function createCartAndSetCookie() {

@@ -25,7 +25,7 @@ export default function SideNav() {
             // signOut() queues the expired cookie; the cookies middleware writes
             // it onto the response. See src/lib/cookie-jar.ts.
             signOut();
-            redirect('/');
+            redirect('/', 303);
           }}
         >
           <button className="flex h-[48px] w-full grow items-center justify-center gap-2 rounded-md bg-gray-50 p-3 text-sm font-medium hover:bg-sky-100 hover:text-blue-600 md:flex-none md:justify-start md:p-2 md:px-3">

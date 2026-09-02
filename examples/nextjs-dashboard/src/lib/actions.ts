@@ -68,7 +68,7 @@ export async function createInvoice(prevState: State, formData: FormData) {
 
   // revalidatePath() has no counterpart: Waku caches nothing, so the redirect
   // below simply renders the invoices page again with fresh data.
-  redirect('/dashboard/invoices');
+  redirect('/dashboard/invoices', 303);
 }
 
 export async function updateInvoice(
@@ -103,7 +103,7 @@ export async function updateInvoice(
     return { message: 'Database Error: Failed to Update Invoice.' };
   }
 
-  redirect('/dashboard/invoices');
+  redirect('/dashboard/invoices', 303);
 }
 
 export async function deleteInvoice(id: string) {
@@ -143,5 +143,7 @@ export async function authenticate(
     '/dashboard/invoices',
     '/dashboard/customers',
   ] as const;
-  redirect(allowed.find((route) => route === redirectTo) ?? '/dashboard');
+  // 303 so a browser following the redirect without JavaScript issues a GET;
+  // the default 307 would re-send the form POST to the destination.
+  redirect(allowed.find((route) => route === redirectTo) ?? '/dashboard', 303);
 }
