@@ -15,7 +15,7 @@ code.
 | 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | already tracked: [#2280](https://github.com/wakujs/waku/issues/2280) |
 | 6 | `unstable_rerenderRoute` is undocumented | folded into 7 |
 | 7 | A server action that does not redirect re-renders nothing, breaking `useOptimistic` | **to file** |
-| 8 | Elements returned by a server action are dropped when the layout slot streams before the page slot | **to file** — bug, timing-dependent |
+| 8 | Elements returned by a server action are dropped when the layout slot streams before the page slot | filed: [#2288](https://github.com/wakujs/waku/issues/2288) |
 
 ## 1. Layout metadata is not overridable by a page (title/description/og:*)
 
@@ -339,6 +339,8 @@ written down, because the layout is the first place a migrating user will put
 the check.
 
 ## 8. Elements returned by a server action are dropped when the layout slot streams before the page slot
+
+Filed as [wakujs/waku#2288](https://github.com/wakujs/waku/issues/2288).
 
 **Where:** next-learn dashboard — `deleteInvoice`, which calls
 `unstable_rerenderRoute('/dashboard/invoices', query)` and stays on the page.

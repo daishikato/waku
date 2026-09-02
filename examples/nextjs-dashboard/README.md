@@ -91,7 +91,7 @@ from the database and still on screen. The documented counterpart of
 `revalidatePath()` is `unstable_rerenderRoute()`, and it worked here until the
 data-layer checks changed the timing of the response — the client only applies
 the re-rendered page when the page slot streams before the layout slot
-(`FINDINGS.md`, finding 8). The delete button is therefore a client component
+([wakujs/waku#2288](https://github.com/wakujs/waku/issues/2288)). The delete button is therefore a client component
 that awaits the action and calls `router.reload()`, which refetches the route
 through the navigation path and is not order-sensitive.
 

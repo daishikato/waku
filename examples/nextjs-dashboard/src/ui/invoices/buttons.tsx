@@ -38,7 +38,7 @@ export function DeleteInvoice({ id }: { id: string }) {
         // Waku re-renders nothing after an action that does not redirect. The
         // server-side unstable_rerenderRoute() exists for this, but the client
         // drops its result whenever the layout slot happens to stream before
-        // the page slot (see examples/FINDINGS.md, finding 8), so the button
+        // the page slot (wakujs/waku#2288), so the button
         // refetches the route itself instead.
         router.reload();
       }}
