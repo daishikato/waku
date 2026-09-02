@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import * as cookie from 'cookie';
+import { getEnv } from 'waku';
 
 // Waku has no cookie-writing API. Server code reads request headers; only
 // middleware owns the response. So middleware/cookies.ts opens a jar around each
@@ -33,6 +34,8 @@ export const setCookie = (name: string, value: string) => {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
+      // Secure unless this is plain-http local development.
+      secure: getEnv('NODE_ENV') !== 'development',
       maxAge: 60 * 60 * 24 * 30,
     }),
   );

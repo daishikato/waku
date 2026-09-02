@@ -70,6 +70,9 @@ export const signIn = async (email: string, password: string) => {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
+      // Secure unless this is plain-http local development. Not keyed on
+      // NODE_ENV === 'production': Cloudflare Workers set no NODE_ENV.
+      secure: getEnv('NODE_ENV') !== 'development',
       maxAge: SESSION_MAX_AGE,
     }),
   );
@@ -86,6 +89,7 @@ export const signOut = () => {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
+      secure: getEnv('NODE_ENV') !== 'development',
       maxAge: 0,
     }),
   );
