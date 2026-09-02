@@ -2,7 +2,7 @@
 
 Four Next.js App Router apps ported to Waku, in increasing order of complexity.
 They exist to exercise Waku against real applications rather than fixtures, and
-to ground [the migration guide](../docs/guides/migrating-from-nextjs.mdx).
+to ground the [Migrating from Next.js](https://waku.gg/guides/migrating-from-nextjs) guide.
 
 | Example | Ported from | Lines | What it covers |
 | --- | --- | --- | --- |
