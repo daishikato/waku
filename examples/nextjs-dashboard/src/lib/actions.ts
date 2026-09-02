@@ -1,12 +1,9 @@
 'use server';
 
 import { z } from 'zod';
-import {
-  unstable_redirect as redirect,
-  unstable_rerenderRoute as rerenderRoute,
-} from 'waku/router/server';
+import { unstable_redirect as redirect } from 'waku/router/server';
 import { sql } from './db';
-import { signIn } from './session';
+import { requireSession, signIn } from './session';
 
 const FormSchema = z.object({
   id: z.string(),
@@ -35,6 +32,7 @@ export type State = {
 };
 
 export async function createInvoice(prevState: State, formData: FormData) {
+  await requireSession();
   // Validate form fields using Zod
   const validatedFields = CreateInvoice.safeParse({
     customerId: formData.get('customerId'),
@@ -78,6 +76,7 @@ export async function updateInvoice(
   prevState: State,
   formData: FormData,
 ) {
+  await requireSession();
   const validatedFields = UpdateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
@@ -107,16 +106,14 @@ export async function updateInvoice(
   redirect('/dashboard/invoices');
 }
 
-export async function deleteInvoice(id: string, searchParams = '') {
+export async function deleteInvoice(id: string) {
+  await requireSession();
   await sql`DELETE FROM invoices WHERE id = ${id}`;
-  // revalidatePath('/dashboard/invoices') becomes unstable_rerenderRoute. An
-  // action that ends in redirect() does not need this, but this one stays on the
-  // page, and nothing refreshes on its own: without the call the row is gone
-  // from the database and still on screen until the next navigation.
-  //
-  // The current query string has to be passed along, because the route the
-  // client is showing is the path *and* its search params.
-  rerenderRoute('/dashboard/invoices', searchParams);
+  // revalidatePath('/dashboard/invoices') has no counterpart here. An action
+  // that ends in redirect() re-renders its destination; one that stays on the
+  // page re-renders nothing, so the row would be gone from the database and
+  // still on screen. The delete button refetches the route after this action
+  // returns — see DeleteInvoice in src/ui/invoices/buttons.tsx.
 }
 
 export async function authenticate(

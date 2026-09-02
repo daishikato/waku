@@ -13,6 +13,14 @@ pnpm dev            # http://localhost:3000
 
 Log in with `user@nextmail.com` / `123456`.
 
+`waku dev` runs with a fixed development session secret. `waku build` and
+`waku start` set `NODE_ENV=production`, where the app refuses to sign sessions
+without one:
+
+```sh
+SESSION_SECRET=$(openssl rand -hex 32) pnpm start
+```
+
 No credentials or services are needed: the Postgres database runs in-process via
 [PGlite](https://pglite.dev) and seeds itself on first use. Set `PGLITE_DATA_DIR`
 to keep it on disk between runs.
@@ -28,10 +36,10 @@ to keep it on disk between runs.
 | `not-found.tsx`, per segment | one `src/pages/404.tsx` for the whole app |
 | `notFound()` | `unstable_notFound()` from `waku/router/server` |
 | `redirect()` | `unstable_redirect()` — typed against the app's routes |
-| `revalidatePath()` | `unstable_rerenderRoute(path, query)` |
+| `revalidatePath()` | `router.reload()` from the client after the action — see below |
 | `searchParams` prop (parsed) | `query` prop (the raw query string) |
 | `useSearchParams()`, `usePathname()`, `useRouter()` | one `useRouter()` with `path`, `query`, `push`, `replace` |
-| `middleware`/`proxy.ts` route protection | a check in `dashboard/_layout.tsx` — see below |
+| `middleware`/`proxy.ts` route protection | `requireSession()` in the data layer and actions, plus a redirect in `dashboard/_layout.tsx` — see below |
 | `next-auth` v5 | `src/lib/session.ts`: ~60 lines over `jose` |
 | `cookies().set()` | a cookie jar (`src/lib/cookie-jar.ts`) + `src/middleware/cookies.ts` |
 | `postgres` (hosted) | PGlite behind the same tagged-template `sql` (`src/lib/db.ts`) |
@@ -45,12 +53,25 @@ the server actions.
 
 ## The four things that needed real thought
 
-**Route protection cannot be middleware.** The original guards `/dashboard` in
-`proxy.ts`. Waku has Hono middleware, and porting the check there *looks* right
+**Route protection is neither middleware nor a layout.** The original guards
+`/dashboard` in `proxy.ts`. Porting that check to Hono middleware *looks* right
 and fails open: a client-side navigation requests `/RSC/R/dashboard.txt`, not
 `/dashboard`, so a path-matching middleware never sees it and serves the
-protected payload. The check lives in `dashboard/_layout.tsx` instead, which runs
-for every route beneath it on both navigation types.
+protected payload. Moving the check into `dashboard/_layout.tsx` is not enough
+either — Waku renders the layout and the page as independent slots of one
+response, and a redirect thrown in the layout does not stop the page from
+rendering its data:
+
+```
+GET /dashboard                     -> 307  Location: /login
+GET /RSC/R/dashboard.txt           -> 200  22,327 bytes, every figure included   (layout check only)
+GET /RSC/R/dashboard.txt           -> 200  8,480 bytes, error slots, no data     (data-layer check)
+```
+
+So the boundary is `requireSession()` at the top of every function in
+`src/lib/data.ts`, every mutation in `src/lib/actions.ts`, and both API routes.
+The layout keeps its redirect, but only so that a signed-out visitor lands on the
+login page instead of an error.
 
 **Setting a cookie takes a round trip through middleware.** Waku has no
 `cookies().set()`. Server code can read request headers; only middleware owns the
@@ -64,10 +85,15 @@ reports the cookies the browser sent, not the one just queued. Logging in would
 set the session and then bounce you back to `/login`. The jar therefore also
 supports reading pending cookies, and `auth()` checks it first.
 
-**Nothing refreshes after a mutation.** `deleteInvoice` stays on the page. Without
-`unstable_rerenderRoute()` the row is gone from the database and still on screen.
-The route's query string has to be passed to it, so the current view is what gets
-re-rendered — which means threading it down to the delete button.
+**Nothing refreshes after a mutation.** `deleteInvoice` stays on the page, and
+Waku re-renders nothing after an action that does not redirect: the row was gone
+from the database and still on screen. The documented counterpart of
+`revalidatePath()` is `unstable_rerenderRoute()`, and it worked here until the
+data-layer checks changed the timing of the response — the client only applies
+the re-rendered page when the page slot streams before the layout slot
+(`FINDINGS.md`, finding 8). The delete button is therefore a client component
+that awaits the action and calls `router.reload()`, which refetches the route
+through the navigation path and is not order-sensitive.
 
 **Typed routes reject computed hrefs.** `redirect(formData.get('redirectTo'))`
 does not compile, and neither does `` `${pathname}?${params}` ``. The pagination

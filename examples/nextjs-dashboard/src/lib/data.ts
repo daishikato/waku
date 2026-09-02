@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { requireSession } from './session';
 import {
   CustomerField,
   CustomersTableType,
@@ -9,7 +10,13 @@ import {
 } from './definitions';
 import { formatCurrency } from './utils';
 
+// Every function here starts with requireSession(). In the Next.js original,
+// middleware in front of the route was the authorization boundary; in Waku the
+// data layer is, because a page's data is rendered even when the layout around
+// it redirects. See requireSession() in ./session.ts.
+
 export async function fetchRevenue() {
+  await requireSession();
   try {
     // Artificially delay a response for demo purposes.
     // Don't do this in production :)
@@ -29,6 +36,7 @@ export async function fetchRevenue() {
 }
 
 export async function fetchLatestInvoices() {
+  await requireSession();
   try {
     const data = await sql<LatestInvoiceRaw>`
       SELECT invoices.amount, customers.name, customers.image_url, customers.email, invoices.id
@@ -49,6 +57,7 @@ export async function fetchLatestInvoices() {
 }
 
 export async function fetchCardData() {
+  await requireSession();
   try {
     // You can probably combine these into a single SQL query
     // However, we are intentionally splitting them to demonstrate
@@ -91,6 +100,7 @@ export async function fetchFilteredInvoices(
   query: string,
   currentPage: number,
 ) {
+  await requireSession();
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
   try {
@@ -123,6 +133,7 @@ export async function fetchFilteredInvoices(
 }
 
 export async function fetchInvoicesPages(query: string) {
+  await requireSession();
   try {
     const data = await sql`SELECT COUNT(*)
     FROM invoices
@@ -144,6 +155,7 @@ export async function fetchInvoicesPages(query: string) {
 }
 
 export async function fetchInvoiceById(id: string) {
+  await requireSession();
   try {
     const data = await sql<InvoiceForm>`
       SELECT
@@ -169,6 +181,7 @@ export async function fetchInvoiceById(id: string) {
 }
 
 export async function fetchCustomers() {
+  await requireSession();
   try {
     const customers = await sql<CustomerField>`
       SELECT
@@ -186,6 +199,7 @@ export async function fetchCustomers() {
 }
 
 export async function fetchFilteredCustomers(query: string) {
+  await requireSession();
   try {
     const data = await sql<CustomersTableType>`
 		SELECT

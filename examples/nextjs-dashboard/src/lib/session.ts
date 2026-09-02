@@ -17,9 +17,25 @@ import type { User } from './definitions';
 const SESSION_COOKIE = 'session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 
-const secret = new TextEncoder().encode(
-  process.env.SESSION_SECRET || 'dev-only-insecure-session-secret',
-);
+// A missing secret must not silently become a guessable key. Development gets
+// a fixed one so `pnpm dev` works out of the box; production has to set it.
+// The check runs on first use rather than at module scope: this module is
+// evaluated during `waku build` too, where a runtime secret need not exist.
+let secret: Uint8Array | undefined;
+const getSecret = () => {
+  if (!secret) {
+    const value =
+      process.env.SESSION_SECRET ||
+      (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-secret' : '');
+    if (value.length < 24) {
+      throw new Error(
+        'Set SESSION_SECRET to a random string of at least 24 characters.',
+      );
+    }
+    secret = new TextEncoder().encode(value);
+  }
+  return secret;
+};
 
 export type Session = { email: string; name: string };
 
@@ -42,7 +58,7 @@ export const signIn = async (email: string, password: string) => {
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_MAX_AGE}s`)
-    .sign(secret);
+    .sign(getSecret());
 
   queueSetCookie(
     cookie.stringifySetCookie({
@@ -84,6 +100,22 @@ export const auth = async (): Promise<Session | null> => {
   return verifySessionToken(cookies[SESSION_COOKIE]);
 };
 
+/**
+ * For data access and mutations: throws instead of redirecting.
+ *
+ * This is the authorization boundary. A layout that redirects only covers the
+ * layout: Waku renders the layout and the page as separate slots of one RSC
+ * response, so an unauthenticated request for /RSC/R/dashboard.txt still ran
+ * the page — and every query in it — until data.ts started checking for itself.
+ */
+export const requireSession = async (): Promise<Session> => {
+  const session = await auth();
+  if (!session) {
+    throw new Error('Unauthorized');
+  }
+  return session;
+};
+
 /** Same check, for middleware, which runs outside the render scope. */
 export const verifySessionToken = async (
   token: string | undefined,
@@ -92,7 +124,7 @@ export const verifySessionToken = async (
     return null;
   }
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, getSecret());
     return { email: payload.email as string, name: payload.name as string };
   } catch {
     return null;

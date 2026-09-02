@@ -6,13 +6,9 @@ import { fetchFilteredInvoices } from '@/lib/data';
 export default async function InvoicesTable({
   query,
   currentPage,
-  searchParams,
 }: {
   query: string;
   currentPage: number;
-  // The route's raw query string, needed to re-render this exact view after a
-  // delete. See deleteInvoice() in src/lib/actions.ts.
-  searchParams: string;
 }) {
   const invoices = await fetchFilteredInvoices(query, currentPage);
 
@@ -51,7 +47,7 @@ export default async function InvoicesTable({
                   </div>
                   <div className="flex justify-end gap-2">
                     <UpdateInvoice id={invoice.id} />
-                    <DeleteInvoice id={invoice.id} searchParams={searchParams} />
+                    <DeleteInvoice id={invoice.id} />
                   </div>
                 </div>
               </div>
@@ -113,7 +109,7 @@ export default async function InvoicesTable({
                   <td className="whitespace-nowrap py-3 pl-6 pr-3">
                     <div className="flex justify-end gap-3">
                       <UpdateInvoice id={invoice.id} />
-                      <DeleteInvoice id={invoice.id} searchParams={searchParams} />
+                      <DeleteInvoice id={invoice.id} />
                     </div>
                   </td>
                 </tr>

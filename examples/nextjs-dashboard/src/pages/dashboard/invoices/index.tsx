@@ -30,11 +30,7 @@ export default async function Page({ query }: PageProps<'/dashboard/invoices'>) 
           tree it used to cover. */}
       <InvoicesErrorBoundary>
         <Suspense key={search + currentPage} fallback={<InvoicesTableSkeleton />}>
-          <Table
-            query={search}
-            currentPage={currentPage}
-            searchParams={query}
-          />
+          <Table query={search} currentPage={currentPage} />
         </Suspense>
       </InvoicesErrorBoundary>
       <div className="mt-5 flex w-full justify-center">

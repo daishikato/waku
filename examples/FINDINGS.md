@@ -15,6 +15,7 @@ code.
 | 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | already tracked: [#2280](https://github.com/wakujs/waku/issues/2280) |
 | 6 | `unstable_rerenderRoute` is undocumented | folded into 7 |
 | 7 | A server action that does not redirect re-renders nothing, breaking `useOptimistic` | **to file** |
+| 8 | Elements returned by a server action are dropped when the layout slot streams before the page slot | **to file** — bug, timing-dependent |
 
 ## 1. Layout metadata is not overridable by a page (title/description/og:*)
 
@@ -112,8 +113,10 @@ render.
 documented Next.js pattern; porting it verbatim produces an app that looks
 protected and is not, with no error to notice.
 
-**Workaround used in the example:** do the check in `dashboard/_layout.tsx`,
-which runs for every dashboard route on both navigation types.
+**Workaround used in the example:** `requireSession()` in every data-access
+function and mutation, with the layout keeping a redirect for the user-facing
+flow. A layout-only check turned out not to be a boundary either — see
+"Finding 3, corrected" under Follow-ups.
 
 **Suggestions:** the middleware docs are a good place to say plainly that
 `c.req.path` is not the route path for client navigations, and to point at
@@ -301,3 +304,69 @@ The 24 KB payload is the rendered dashboard, including the figures it exists to
 protect (`$1,006.26`, `$1,256.32`, per-invoice amounts, customer names). In a
 browser, a visitor with no cookies clicking a `<Link to="/dashboard">` gets a
 rendered dashboard.
+
+### Finding 3, corrected: a layout is not an authorization boundary either
+
+The first version of the dashboard example answered finding 3 by moving the
+check into `dashboard/_layout.tsx`. Review of the docs PR (wakujs/waku#2287)
+pointed out that this does not protect the page's data, and it does not:
+
+```
+layout check only, no cookie
+GET /dashboard                     -> 307  Location: /login
+GET /RSC/R/dashboard.txt           -> 200  22,327 bytes   $1,006.26 · Evil Rabbit · Recent Revenue …
+GET /RSC/R/dashboard/invoices.txt  -> 200  58,825 bytes   every invoice amount
+```
+
+Waku renders a route's layouts and page as independent slots of one Flight
+response. The layout slot carries the redirect error; the page slot renders
+regardless, queries included. In a browser the router follows the redirect, so
+the user sees the login page — but the bytes were already sent.
+
+The fix in the example is the one that works for any framework with parallel
+slot rendering (Next.js documents the same rule for its layouts): the data
+access layer and the mutations verify the session themselves, and the layout
+keeps its redirect for the user-facing flow. With that in place the same
+requests return 8,480 and 1,158 bytes of error slots and no data. The two API
+routes needed their own checks as well — `/query` talks to the database
+directly and was still answering.
+
+Worth stating in the router docs: a `redirect()` (or `notFound()`) thrown in a
+layout does not abort the sibling page slot. Whether it *should* is a design
+question — aborting the whole response on the first redirect would make the
+layout a real boundary — but either way the current behaviour should be
+written down, because the layout is the first place a migrating user will put
+the check.
+
+## 8. Elements returned by a server action are dropped when the layout slot streams before the page slot
+
+**Where:** next-learn dashboard — `deleteInvoice`, which calls
+`unstable_rerenderRoute('/dashboard/invoices', query)` and stays on the page.
+
+The re-render worked until `requireSession()` was added to the data functions,
+then stopped, deterministically (0/3 vs 3/3). The action's response is identical
+in both builds — the same 74 Flight rows, the deleted row gone, no error rows.
+The only difference is the **order** in which the two slots stream:
+
+| build | `layout:/dashboard` chunk at row | page refreshed |
+| --- | --- | --- |
+| before the change (page's SQL finishes first) | 74 of 74 | 3/3, within 1 s |
+| after the change (layout's `auth()` finishes first) | 9 of 74 | 0/3, still stale after 12 s |
+| after the change + `await setTimeout(50)` in the layout | 73 of 73 | 2/2, within 1 s |
+
+So the client applies action-returned elements only when the page slot precedes
+the layout slot in the stream. Which slot resolves first is a race between two
+unrelated async server components, so this is invisible in a fixture and flips
+in a real app when, for example, an auth check is added to a query.
+
+**Impact:** any action that relies on `unstable_rerenderRoute` (the only
+server-side counterpart of `revalidatePath`) can silently stop refreshing the
+UI. There is no error anywhere; the server did the work and returned it.
+
+**Minimal recipe:** a dynamic layout that resolves quickly (an `await` of
+anything short), a page whose data takes longer, and a form action that ends in
+`unstable_rerenderRoute()`. Delay the layout by 50 ms and it works.
+
+**Workaround used in the example:** a client component that awaits the action
+and calls `useRouter().reload()`, which refetches through the navigation path
+and is not order-sensitive.

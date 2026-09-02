@@ -3,13 +3,19 @@ import { unstable_redirect as redirect } from 'waku/router/server';
 import { auth } from '@/lib/session';
 import SideNav from '@/ui/dashboard/sidenav';
 
-// This is where Next.js middleware went.
+// This redirect is for people, not for data.
 //
-// The original guards /dashboard from proxy.ts. Waku's Hono middleware is not
-// the right home for that check: a client-side navigation fetches
-// /RSC/R/dashboard.txt rather than /dashboard, so a path-matching middleware
-// silently lets it through. A layout runs for every route beneath it on both
-// navigation types, so the check lives here instead.
+// The original guards /dashboard from proxy.ts. Waku's Hono middleware cannot
+// take that over: a client-side navigation fetches /RSC/R/dashboard.txt rather
+// than /dashboard, so a path-matching middleware silently lets it through. This
+// layout runs on both navigation types and sends a signed-out visitor to the
+// login page.
+//
+// It is not the authorization boundary either. Waku renders this layout and
+// the page beneath it as independent slots of the same response, so a redirect
+// here does not stop the page from rendering its data. That is why every
+// function in src/lib/data.ts and every mutation in src/lib/actions.ts calls
+// requireSession() itself.
 export default async function Layout({ children }: { children: ReactNode }) {
   const session = await auth();
   if (!session) {
