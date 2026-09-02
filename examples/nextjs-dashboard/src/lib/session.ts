@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import * as cookie from 'cookie';
 import { jwtVerify, SignJWT } from 'jose';
+import { getEnv } from 'waku';
 import { unstable_getHeaders as getHeaders } from 'waku/router/server';
 import { queueSetCookie, readPendingCookie } from './cookie-jar';
 import { sql } from './db';
@@ -21,12 +22,14 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 // a fixed one so `pnpm dev` works out of the box; production has to set it.
 // The check runs on first use rather than at module scope: this module is
 // evaluated during `waku build` too, where a runtime secret need not exist.
+// getEnv() is Waku's runtime-agnostic env access; process.env does not exist
+// on Cloudflare Workers or Deno.
 let secret: Uint8Array | undefined;
 const getSecret = () => {
   if (!secret) {
     const value =
-      process.env.SESSION_SECRET ||
-      (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-secret' : '');
+      getEnv('SESSION_SECRET') ||
+      (getEnv('NODE_ENV') !== 'production' ? 'dev-only-insecure-secret' : '');
     if (value.length < 24) {
       throw new Error(
         'Set SESSION_SECRET to a random string of at least 24 characters.',
@@ -123,8 +126,11 @@ export const verifySessionToken = async (
   if (!token) {
     return null;
   }
+  // Resolve the key before the try: a missing SESSION_SECRET is a deployment
+  // error and must surface, whereas a bad token is an ordinary "no session".
+  const key = getSecret();
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, key);
     return { email: payload.email as string, name: payload.name as string };
   } catch {
     return null;

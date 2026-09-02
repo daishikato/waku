@@ -26,7 +26,7 @@ from the four Next.js APIs listed below.
 | `metadata` / `generateMetadata()` | tags rendered with the page |
 | `app/sitemap.ts`, `app/robots.ts` | `src/pages/_api/sitemap.xml.ts`, `_api/robots.txt.ts` |
 | `app/opengraph-image.tsx` (`next/og`) | `src/pages/_api/opengraph-image.ts`, returning SVG |
-| `app/api/revalidate/route.ts` | `src/pages/_api/revalidate.ts`, plain `Request`/`Response` |
+| `app/api/revalidate/route.ts` | `src/pages/_api/api/revalidate.ts` — `_api` is stripped from the URL, so the extra `api/` keeps the webhook at `/api/revalidate` |
 | `app/error.tsx` | `<StorefrontErrorBoundary>` in the root layout |
 | `app/search/loading.tsx` | the `<Suspense>` already in the search layout |
 | `"use cache"`, `cacheTag`, `cacheLife`, `revalidateTag` | deleted — Waku has no cache |
