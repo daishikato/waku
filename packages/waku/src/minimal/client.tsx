@@ -40,6 +40,7 @@ import {
 } from './client-utils/initial-rsc-store.js';
 import {
   getDefaultRootStore,
+  getMountedRootStores,
   registerRootStore,
 } from './client-utils/root-store.js';
 import type {
@@ -312,6 +313,55 @@ const requestRsc = (
   );
 };
 
+// React can lose the wake-up for a Flight chunk: a lazy element suspends while
+// its row is still on the wire, React yields, the row lands before React
+// resumes, and because nothing had subscribed to the chunk yet it stays in
+// Flight's "resolved_model" state. React then treats it as unresolved, unwinds
+// into the nearest Suspense boundary and subscribes there, which initializes
+// the chunk and pings React synchronously, in the middle of that unwind, after
+// the render was already marked as delayed. That ping is dropped, so the
+// transition never re-renders and the screen keeps the old elements (#2288).
+// A server action that re-renders the route through a content-showing
+// boundary hits this whenever the layout row streams before the page rows.
+//
+// Once the response has been fully read every chunk can be read synchronously,
+// so an identity update on each mounted Root, on the same queue as the stuck
+// transition, is enough to make React render it again. When nothing is
+// pending the update bails out before scheduling any work.
+const nudgeMountedRoots = () => {
+  startTransition(() => {
+    for (const store of getMountedRootStores()) {
+      store.setElements((prev) => prev);
+    }
+  });
+};
+
+const nudgeRootsWhenStreamEnds = (response: Response): Response => {
+  const body = response.body;
+  if (!body) {
+    return response;
+  }
+  const reader = body.getReader();
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          // React consumes the last rows in microtasks; nudge after them.
+          setTimeout(nudgeMountedRoots);
+          return;
+        }
+        controller.enqueue(value);
+      } catch (e) {
+        controller.error(e);
+      }
+    },
+    cancel: (reason) => reader.cancel(reason),
+  });
+  return new Response(stream, response);
+};
+
 const decodeRsc = (
   responsePromise: Promise<Response>,
   temporaryReferences: ReturnType<typeof createTemporaryReferenceSet>,
@@ -319,12 +369,15 @@ const decodeRsc = (
     ReturnType<typeof setupDebugChannel>['debugChannel'] | undefined,
 ): Promise<Elements> =>
   Promise.resolve(
-    createFromFetch<Elements>(checkStatus(responsePromise), {
-      callServer: (funcId: string, args: unknown[]) =>
-        unstable_callServerRsc(funcId, args),
-      debugChannel,
-      temporaryReferences,
-    }),
+    createFromFetch<Elements>(
+      checkStatus(responsePromise).then(nudgeRootsWhenStreamEnds),
+      {
+        callServer: (funcId: string, args: unknown[]) =>
+          unstable_callServerRsc(funcId, args),
+        debugChannel,
+        temporaryReferences,
+      },
+    ),
   ).then((data) => {
     if (typeof data._location !== 'string') {
       return data;

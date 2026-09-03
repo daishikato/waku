@@ -19,6 +19,9 @@ const mountedRootStores: RootStore[] = [];
 export const getDefaultRootStore = (): RootStore | undefined =>
   mountedRootStores.at(-1);
 
+export const getMountedRootStores = (): readonly RootStore[] =>
+  mountedRootStores;
+
 export const clearRootCachedEtags = (): void => {
   mountedRootStores.forEach((store) => {
     store.etags = {};

@@ -239,6 +239,97 @@ describe('minimal/client fetch', () => {
   });
 });
 
+describe('minimal/client stream end', () => {
+  test('nudges every mounted Root once a response is fully read', async () => {
+    const setElements = vi.fn();
+    const unregister = registerRootStore({
+      setElements,
+      etags: {},
+      listeners: new Set(),
+    });
+    try {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('first '));
+          controller.enqueue(encoder.encode('second'));
+          controller.close();
+        },
+      });
+      track(
+        unstable_registerFetchEnhancer(
+          () => async () => new Response(body, { status: 200 }),
+        ),
+      );
+
+      const elements = await unstable_fetchRsc('R/next.txt');
+
+      // the wrapped body still delivers everything to the decoder
+      expect(elements).toEqual({ _value: null, text: 'first second' });
+      // the nudge waits for React to consume the last rows
+      expect(setElements).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(setElements).toHaveBeenCalledTimes(1));
+      const updater = setElements.mock.calls[0]![0] as (
+        prev: unknown,
+      ) => unknown;
+      const prev = Promise.resolve({});
+      // an identity update: it bails out when nothing is pending
+      expect(updater(prev)).toBe(prev);
+    } finally {
+      unregister();
+    }
+  });
+
+  test('does not nudge before the response is fully read', async () => {
+    const setElements = vi.fn();
+    const unregister = registerRootStore({
+      setElements,
+      etags: {},
+      listeners: new Set(),
+    });
+    try {
+      let finish!: () => void;
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('head'));
+          finish = () => {
+            controller.enqueue(encoder.encode(' tail'));
+            controller.close();
+          };
+        },
+      });
+      track(
+        unstable_registerFetchEnhancer(
+          () => async () => new Response(body, { status: 200 }),
+        ),
+      );
+      // the decoder resolves on the first chunk, like Flight does for row 0
+      mocks.createFromFetch.mockImplementation(async (responsePromise) => {
+        const response = await responsePromise;
+        const reader = response.body!.getReader();
+        const first = await reader.read();
+        void (async () => {
+          while (!(await reader.read()).done) {
+            // drain the rest as it streams in
+          }
+        })();
+        return { _value: null, text: new TextDecoder().decode(first.value) };
+      });
+
+      const elements = await unstable_fetchRsc('R/next.txt');
+
+      expect(elements).toEqual({ _value: null, text: 'head' });
+      await wait();
+      expect(setElements).not.toHaveBeenCalled();
+      finish();
+      await vi.waitFor(() => expect(setElements).toHaveBeenCalledTimes(1));
+    } finally {
+      unregister();
+    }
+  });
+});
+
 describe('minimal/client transport failures', () => {
   const redirectedResponse = (url: string) =>
     ({
