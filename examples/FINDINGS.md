@@ -12,10 +12,10 @@ code.
 | 2 | Every stylesheet emits an invalid `as="stylesheet"` preload | upstream React; same mechanism as [#1964](https://github.com/wakujs/waku/issues/1964) |
 | 3 | Hono middleware cannot protect routes the way Next.js middleware does | **to file** — security-relevant, fails open |
 | 4 | A cookie set by a server action is invisible to the render that follows | solvable in userland; docs/recipe gap |
-| 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | already tracked: [#2280](https://github.com/wakujs/waku/issues/2280) |
+| 5 | `unstable_notFound()` renders a blank page when the root layout imports CSS | tracked as [#2280](https://github.com/wakujs/waku/issues/2280); **fixed** by [#2290](https://github.com/wakujs/waku/pull/2290) |
 | 6 | `unstable_rerenderRoute` is undocumented | folded into 7 |
 | 7 | A server action that does not redirect re-renders nothing, breaking `useOptimistic` | **to file** |
-| 8 | Elements returned by a server action are dropped when the layout slot streams before the page slot | filed: [#2288](https://github.com/wakujs/waku/issues/2288) |
+| 8 | Elements returned by a server action are silently not applied | filed: [#2288](https://github.com/wakujs/waku/issues/2288); a React 19.2 bug, patched at build time in daishikato/waku#11 |
 
 ## 1. Layout metadata is not overridable by a page (title/description/og:*)
 
@@ -165,9 +165,13 @@ because the naive version looks correct and is not.
 
 ## 5. `unstable_notFound()` renders a blank page when the root layout imports CSS
 
-**Severity: this one looks like a release blocker.** It reproduces in the repo's
-own e2e fixture, and the condition that triggers it — a global stylesheet
-imported by the root layout — is what `templates/01_basic` does out of the box.
+**Fixed upstream** by [#2290](https://github.com/wakujs/waku/pull/2290), which
+ignores a React stylesheet preload detached by an abandoned render. The rest of
+this section is the original report, kept for the repro.
+
+It looked like a release blocker: it reproduced in the repo's own e2e fixture,
+and the condition that triggers it — a global stylesheet imported by the root
+layout — is what `templates/01_basic` does out of the box.
 
 **Repro** (on `main`, dev or production):
 
