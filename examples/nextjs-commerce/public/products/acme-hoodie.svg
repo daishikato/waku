@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000" role="img" aria-label="Hoodie">
+  <rect width="1000" height="1000" fill="#312e81"/>
+  <circle cx="500" cy="430" r="170" fill="none" stroke="#eef2ff" stroke-width="18" opacity="0.9"/><circle cx="500" cy="430" r="110" fill="none" stroke="#eef2ff" stroke-width="18" opacity="0.6"/>
+  <text x="500" y="760" fill="#eef2ff" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="54" font-weight="600" text-anchor="middle">Hoodie</text>
+</svg>

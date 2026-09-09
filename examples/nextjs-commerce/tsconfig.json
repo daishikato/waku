@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": true,
+    // The Next.js original used baseUrl: "." so it could import `lib/shopify`.
+    // baseUrl is deprecated in TypeScript 6, so the same two roots are spelled
+    // out as paths (and mirrored as Vite aliases in waku.config.ts).
+    "paths": {
+      "lib/*": ["./src/lib/*"],
+      "components/*": ["./src/components/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}

@@ -5,3 +5,5 @@ pnpm-workspace.yaml
 dist
 worker-configuration.d.ts
 .wrangler
+# Migrated example apps keep their upstream formatting so the migration diff stays readable
+/examples

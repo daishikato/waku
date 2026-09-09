@@ -15,6 +15,9 @@ export default defineConfig(
       '**/.vercel/',
       '**/pages.gen.ts',
       'packages/create-waku/templates/',
+      // Migrated Next.js apps: kept close to their upstream source so the
+      // migration diff stays readable, so they follow upstream style.
+      'examples/',
     ],
   },
   eslint.configs.recommended,
