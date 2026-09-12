@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { patchRsdwPlugin } from '../src/lib/vite-plugins/patch-rsdw.js';
 
 const require = createRequire(import.meta.url);
 
@@ -13,25 +12,22 @@ const readRsdwClientDevBundle = () => {
     'cjs',
     'react-server-dom-webpack-client.browser.development.js',
   );
-  return { id: bundlePath, code: readFileSync(bundlePath, 'utf8') };
+  return readFileSync(bundlePath, 'utf8').replace(/\s+/g, ' ');
 };
 
-const runTransform = (id: string, code: string): string | undefined => {
-  const { transform } = patchRsdwPlugin();
-  const fn = transform as
-    ((code: string, id: string) => string | undefined) | undefined;
-  return fn?.(code, id);
-};
-
-describe('patchRsdwPlugin', () => {
-  it('still rewrites the installed react-server-dom-webpack client dev bundle', () => {
-    const { id, code } = readRsdwClientDevBundle();
-    const result = runTransform(id, code);
-    // If a React upgrade changes these internals, the string match silently
-    // no-ops and _debugInfo recovery for the Server Components performance
-    // track is lost. Fail loudly here instead. See patch-rsdw.ts.
-    expect(typeof result).toBe('string');
-    expect(result).not.toBe(code);
-    expect(result).toContain('root._debugInfo');
+// facebook/react#37116. React 19.2 did not read back debug info that
+// moveDebugInfoFromChunkToInnerValue had moved from a chunk onto its resolved
+// value, so those chunks went missing from the Server Components performance
+// track and Waku patched the recovery in. React recovers it itself since 19.3
+// and the patch is gone; fail loudly if that ever regresses.
+describe('react-server-dom-webpack debug info recovery', () => {
+  it('is in the installed react-server-dom-webpack client dev bundle', () => {
+    const code = readRsdwClientDevBundle();
+    expect(code).toContain('flushComponentPerformance');
+    expect(code).toContain(
+      'debugInfo = root._debugInfo; if (0 === debugInfo.length && "fulfilled" === root.status)',
+    );
+    expect(code).toContain('resolveLazy(root.value)');
+    expect(code).toContain('isArrayImpl(resolvedValue._debugInfo)');
   });
 });
