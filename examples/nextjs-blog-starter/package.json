@@ -19,7 +19,7 @@
     "react-server-dom-webpack": "~19.3.0",
     "remark": "^15.0.1",
     "remark-html": "^16.0.1",
-    "waku": "latest"
+    "waku": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

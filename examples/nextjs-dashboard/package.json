@@ -24,7 +24,7 @@
     "react-error-boundary": "^6.0.0",
     "react-server-dom-webpack": "~19.3.0",
     "use-debounce": "^10.0.4",
-    "waku": "latest",
+    "waku": "1.0.0-rc.1",
     "zod": "^3.25.17"
   },
   "devDependencies": {
