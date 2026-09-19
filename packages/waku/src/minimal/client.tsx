@@ -52,15 +52,10 @@ import type { RegisterRscReloadListener } from './client-utils/rsc-reload.js';
 const { createFromFetch, encodeReply, createTemporaryReferenceSet } =
   RSDWClient;
 
-const DEFAULT_HTML_HEAD = [
-  <meta charSet="utf-8" key="charset" />,
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1"
-    key="viewport"
-  />,
-  <meta name="generator" content="Waku" key="generator" />,
-];
+// `charset` and `viewport` are resolved by their last occurrence, so they
+// cannot be deduplicated in the SSR head and instead live in the root
+// component, where an app replaces them by replacing the root.
+const META_GENERATOR = <meta name="generator" content="Waku" />;
 
 const BASE_RSC_PATH = `${import.meta.env?.WAKU_CONFIG_BASE_PATH ?? '/'}${
   import.meta.env?.WAKU_CONFIG_RSC_BASE ?? 'RSC'
@@ -657,7 +652,7 @@ export const Root_UNSTABLE = ({
   return (
     <RootStoreContext value={store}>
       <ElementsContext value={elements}>
-        {DEFAULT_HTML_HEAD}
+        {META_GENERATOR}
         {children}
       </ElementsContext>
     </RootStoreContext>
@@ -725,7 +720,7 @@ export const INTERNAL_ServerRoot = ({
 }) => (
   <RootStoreContext value={null}>
     <ElementsContext value={elementsPromise}>
-      {DEFAULT_HTML_HEAD}
+      {META_GENERATOR}
       {children}
     </ElementsContext>
   </RootStoreContext>
