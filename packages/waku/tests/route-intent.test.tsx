@@ -21,6 +21,11 @@ import {
   getRouteSlotId,
 } from '../src/router/isomorphic-utils/router-protocol.js';
 import type { RouteIntentData } from '../src/router/isomorphic-utils/router-protocol.js';
+import {
+  unstable_defineRouter,
+  unstable_notFound,
+  unstable_redirect,
+} from '../src/router/server.js';
 
 type Elements = Readonly<Record<string | symbol, unknown>>;
 const mocks = vi.hoisted(() => ({
@@ -39,6 +44,11 @@ vi.mock('react-server-dom-webpack/client', () => ({
     encodeReply: async () => '',
     createTemporaryReferenceSet: () => new Map(),
   },
+}));
+
+vi.mock('../src/server.js', () => ({
+  serializeRsc: vi.fn(),
+  deserializeRsc: vi.fn(),
 }));
 
 const defer = <T,>() => {
@@ -144,6 +154,52 @@ test('a navigation commits while its intent stays pending', async () => {
   expect(view.textContent).toContain('Page /two');
   expect(controls.elements[INTENT_ID]).toBe(pending.promise);
 });
+
+test.each(['redirect', 'notFound'] as const)(
+  'a cancelled resolver follows %s from a pending navigation',
+  async (kind) => {
+    mocks.queue.push(payload('/one'));
+    const view = await mount();
+    const router = unstable_defineRouter({
+      resolve: async () =>
+        kind === 'redirect' ? unstable_redirect('/done') : unstable_notFound(),
+      getHas404: async () => kind === 'notFound',
+    });
+    let elements!: Elements;
+    await router.handleRequest(
+      {
+        type: 'rsc',
+        pathname: '/RSC/R/gate',
+        rscPath: 'R/gate',
+        rscParams: new URLSearchParams({ query: 'q=one' }),
+        req: new Request('http://localhost/RSC/R/gate'),
+      },
+      {
+        renderRsc: async (data) => {
+          elements = data;
+          return new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          });
+        },
+        renderHtml: vi.fn(),
+        renderHtmlFallback: vi.fn(),
+        loadBuildMetadata: vi.fn(),
+      },
+    );
+    const destination = kind === 'redirect' ? '/done' : '/404';
+    mocks.queue.push(elements, payload(destination));
+    await act(async () => {
+      await controls.router.push('/gate?q=one');
+      await flush();
+    });
+    expect(window.location.pathname + window.location.search).toBe(
+      kind === 'redirect' ? '/done' : '/gate?q=one',
+    );
+    expect(view.textContent).toContain('Page ' + destination);
+  },
+);
 
 test('a self redirect stops before another request is sent', async () => {
   const intent = deferIntent();

@@ -107,6 +107,36 @@ export const createRequestHandler = ({
         },
       });
     };
+    const renderCancelledRequest = async () => {
+      const intent = getRouteIntent();
+      if (input.type === 'http') {
+        return (
+          redirectResponse() ??
+          new Response(null, {
+            status: intent.value?.status === 404 ? 404 : 200,
+          })
+        );
+      }
+      if (input.type === 'rsc' && decodeSliceId(input.rscPath) === null) {
+        const entries = await routeEntries.getEntriesForRoute(
+          input.rscPath,
+          input.rscParams,
+          input.etags ?? {},
+          requestElementCache,
+          {
+            elements: {
+              root: { render: () => null },
+              route: { render: () => null },
+            },
+          },
+        );
+        return renderRsc(
+          { ...entries!.elements, [INTENT_ID]: intent.promise },
+          { etags: entries!.etags },
+        );
+      }
+      return renderRsc({ [INTENT_ID]: intent.promise });
+    };
     const handleRequest = async () => {
       const intent = getRouteIntent();
       const renderRscWithIntent: RenderRsc = (elements, options) =>
@@ -248,7 +278,7 @@ export const createRequestHandler = ({
           );
         } catch (e) {
           if (isRenderCancellation(e)) {
-            return renderRscWithIntent({});
+            return renderCancelledRequest();
           }
           const info = getErrorInfo(e);
           if (info?.location && info.status !== 404) {
@@ -281,7 +311,7 @@ export const createRequestHandler = ({
         }
         if (!entries) {
           if (intent.value) {
-            return renderRscWithIntent({});
+            return renderCancelledRequest();
           }
           return null;
         }
@@ -472,17 +502,6 @@ export const createRequestHandler = ({
         return handleHttpRequest(input);
       }
     };
-    return runHandled(input.req, handleRequest, async () => {
-      const intent = getRouteIntent();
-      if (input.type === 'http') {
-        return (
-          redirectResponse() ??
-          new Response(null, {
-            status: intent.value?.status === 404 ? 404 : 200,
-          })
-        );
-      }
-      return renderRsc({ [INTENT_ID]: intent.promise });
-    });
+    return runHandled(input.req, handleRequest, renderCancelledRequest);
   };
 };

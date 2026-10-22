@@ -143,7 +143,12 @@ describe('intent metadata', () => {
       getHas404: async () => false,
     });
     const renderRsc = vi.fn(async (elements) => {
-      expect(Object.keys(elements)).toEqual(['INTENT']);
+      expect(elements).toMatchObject({
+        root: null,
+        'route:/old': null,
+        ROUTE: ['/old', ''],
+        IS_STATIC: false,
+      });
       expect(JSON.parse(await elements.INTENT)).toEqual({
         status: 307,
         location: '/next?q=one',
