@@ -126,9 +126,10 @@ const getRedirectLocation = (
 /**
  * Requests navigation without terminating execution. Return explicitly after
  * calling it. Accepts an app-relative path or an absolute HTTP(S) URL; validate
- * destinations derived from user input against your own allowlist. Before the
- * document shell this produces an HTTP redirect, with 303 for a form POST;
- * after the shell the client follows the streamed route intent.
+ * destinations derived from user input against your own allowlist. Before a
+ * dynamic document's shell this produces an HTTP redirect (303 for a form POST).
+ * After the shell the browser follows the streamed intent using JavaScript.
+ * Prerendered pages use an HTML refresh.
  * An absolute URL navigates the document even when it names this origin.
  * The first navigation recorded for a request wins.
  */

@@ -4,7 +4,6 @@
  * The first resolution wins and listeners run synchronously. Only values
  * published while rendering is active reach the receiver. An unused decoded
  * promise may remain pending or resolve undefined; observe it without suspending.
- * HTML consumers need a completion signal when it remains pending.
  *
  * @example
  * const { promise, resolve } = unstable_createWeakPromise<string>();
