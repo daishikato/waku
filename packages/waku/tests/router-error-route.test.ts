@@ -9,7 +9,7 @@ import {
   decideFollow,
   decideRouteIntent,
   isFollowable,
-} from '../src/router/client-core-utils/route-intent.js';
+} from '../src/router/client-core-utils/route-follow.js';
 import { parseRoute } from '../src/router/client-core-utils/route-url.js';
 
 beforeEach(() => {

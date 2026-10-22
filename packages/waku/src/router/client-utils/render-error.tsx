@@ -15,7 +15,7 @@ import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
   isFollowable,
-} from '../client-core-utils/route-intent.js';
+} from '../client-core-utils/route-follow.js';
 import { parseRoute } from '../client-core-utils/route-url.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
 import { has404FromElements } from '../isomorphic-utils/router-protocol.js';

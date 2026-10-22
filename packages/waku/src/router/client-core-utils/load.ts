@@ -1,5 +1,5 @@
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
-import { MAX_FOLLOWS_PER_NAVIGATION, decideFollow } from './route-intent.js';
+import { MAX_FOLLOWS_PER_NAVIGATION, decideFollow } from './route-follow.js';
 import { getRouteUrl, isSameRscRoute } from './route-url.js';
 
 type Elements = Readonly<Record<string | symbol, unknown>>;
