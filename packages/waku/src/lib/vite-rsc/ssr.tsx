@@ -119,6 +119,7 @@ export const renderHtmlStream: RenderHtmlStream = async (
         getBootstrapPreamble({
           hydrate: false,
           initialRsc: true,
+          debugId: options.debugId,
         }) +
         bootstrapScriptContent +
         (options.extraScriptContent || ''),
