@@ -8,6 +8,7 @@ import {
   Slot_UNSTABLE as Slot,
 } from 'waku/minimal/client';
 import { DynamicIsland } from './components/DynamicIsland';
+import { handleWeakPromise } from './weak-promise';
 // eslint-disable-next-line import/no-unresolved
 import { App } from '@/components/App';
 
@@ -49,7 +50,12 @@ const appForMode = (
 
 export default adapter(
   {
-    handleRequest: async (input, { renderRsc, renderHtml }) => {
+    handleRequest: async (input, utils) => {
+      const weak = await handleWeakPromise(input, utils);
+      if (weak !== undefined) {
+        return weak;
+      }
+      const { renderRsc, renderHtml } = utils;
       if (input.type === 'rsc') {
         if (input.rscPath === 'island') {
           return renderRsc({
