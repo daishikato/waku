@@ -15,7 +15,7 @@ import {
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideRouteIntent,
-} from '../client-core-utils/route-intent.js';
+} from '../client-core-utils/route-follow.js';
 import { isSameRscRoute, parseRoute } from '../client-core-utils/route-url.js';
 import {
   INTENT_ID,

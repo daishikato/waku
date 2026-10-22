@@ -17,7 +17,7 @@ import { useRouterCache } from '../client-core-utils/caches.js';
 import { useHmrRefetch } from '../client-core-utils/hmr.js';
 import { useInitialRoute } from '../client-core-utils/initial-route.js';
 import { buildMergePatch } from '../client-core-utils/merge-patch.js';
-import { isFollowable } from '../client-core-utils/route-intent.js';
+import { isFollowable } from '../client-core-utils/route-follow.js';
 import {
   getRouteUrl,
   isSameRoute,

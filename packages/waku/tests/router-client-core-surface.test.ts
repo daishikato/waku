@@ -9,7 +9,7 @@ import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
   isFollowable,
-} from '../src/router/client-core-utils/route-intent.js';
+} from '../src/router/client-core-utils/route-follow.js';
 import * as clientCore from '../src/router/client-core.js';
 import * as client from '../src/router/client.js';
 
