@@ -1,5 +1,6 @@
+import process from 'node:process';
 import { createRequire, registerHooks } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 

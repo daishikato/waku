@@ -1,8 +1,22 @@
+/* global globalThis */
+import { Buffer } from 'node:buffer';
+import { clearTimeout, setImmediate, setTimeout } from 'node:timers';
+import process from 'node:process';
 import assert from 'node:assert/strict';
 import { createRequire, registerHooks } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
+
+const {
+  AbortController,
+  AbortSignal,
+  ReadableStream,
+  Response,
+  TextEncoder,
+  TransformStream,
+  console,
+} = globalThis;
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -396,6 +410,7 @@ await scenario(
   async (signal) => {
     const weak = createWeakPromise();
     function Page(_props) {
+      void _props;
       return React.createElement('p', null, 'done');
     }
     const output = run(
