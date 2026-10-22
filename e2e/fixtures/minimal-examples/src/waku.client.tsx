@@ -5,6 +5,7 @@ import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
 } from 'waku/minimal/client';
+import { CancelRender } from './components/CancelRender';
 import { WeakPromiseRoot } from './components/WeakPromise';
 
 const ClientRoot = () => {
@@ -29,7 +30,11 @@ const ClientRoot = () => {
 
 const rootElement = (
   <StrictMode>
-    {window.location.pathname === '/weak' ? (
+    {window.location.pathname === '/cancel-render' ? (
+      <Root>
+        <CancelRender />
+      </Root>
+    ) : window.location.pathname === '/weak' ? (
       <WeakPromiseRoot />
     ) : (
       <ClientRoot />

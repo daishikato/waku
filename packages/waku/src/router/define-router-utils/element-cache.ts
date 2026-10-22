@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Unstable_ElementSource as ElementSource } from 'waku/minimal/server';
+import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/server';
 import { deserializeRsc, serializeRsc } from 'waku/server';
 import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import { captureRouteIntent, getRouteIntent } from './request-store.js';
@@ -50,9 +51,18 @@ export const createElementCache = (
       if (cache.has(cacheId)) {
         return;
       }
-      const entry = captureRouteIntent(async () =>
-        serializeRsc(await render()),
-      );
+      const entry = captureRouteIntent(async () => {
+        let element;
+        try {
+          element = await render();
+        } catch (error) {
+          if (!isRenderCancellation(error)) {
+            throw error;
+          }
+          element = null;
+        }
+        return serializeRsc(element);
+      });
       cache.set(cacheId, entry);
       const { result, intent } = await entry;
       onSerialize?.(cacheId, { data: bytesToBase64(result), intent });

@@ -1,4 +1,7 @@
-import { unstable_createCustomError as createCustomError } from 'waku/minimal/server';
+import {
+  unstable_cancelRender as cancelRender,
+  unstable_isRenderCancellation as isRenderCancellation,
+} from 'waku/minimal/server';
 import type { Unstable_Handlers as Handlers } from 'waku/minimal/server';
 import { createBuildHandler } from './define-router-utils/build-handler.js';
 import type {
@@ -81,13 +84,14 @@ export function unstable_rerenderRoute(pathname?: string, query?: string) {
  * The first navigation recorded for a request wins. A server function keeps its
  * normal return value; a form submitted without JavaScript responds with 404.
  */
-export function notFound(): void {
+export function requestNotFound(): void {
   getRouteIntent().record({ status: 404 });
 }
 
-/** @deprecated Use `notFound()` and return explicitly. This alias throws. */
+/** @deprecated Use `requestNotFound()` and `cancelRender()` to control termination. */
 export function unstable_notFound(): never {
-  throw createCustomError('Not Found', { status: 404 });
+  requestNotFound();
+  cancelRender();
 }
 
 const getRedirectLocation = (
@@ -133,22 +137,21 @@ const getRedirectLocation = (
  * An absolute URL navigates the document even when it names this origin.
  * The first navigation recorded for a request wins.
  */
-export function redirect(
+export function requestRedirect(
   to: NavigationHref | `http://${string}` | `https://${string}` | URL,
   status: 303 | 307 | 308 = 307,
 ): void {
-  getRouteIntent().record({ status, location: getRedirectLocation(to) });
+  const location = getRedirectLocation(to);
+  getRouteIntent().record({ status, location });
 }
 
-/** @deprecated Use `redirect()` and return explicitly. This alias throws. */
+/** @deprecated Use `requestRedirect()` and `cancelRender()` to control termination. */
 export function unstable_redirect(
   to: NavigationHref | `http://${string}` | `https://${string}` | URL,
   status: 303 | 307 | 308 = 307,
 ): never {
-  throw createCustomError('Redirect', {
-    status,
-    location: getRedirectLocation(to),
-  });
+  requestRedirect(to, status);
+  cancelRender();
 }
 
 type RouterOptions = {
@@ -192,14 +195,21 @@ export function unstable_defineRouter(fns: RouterOptions): Handlers {
   const runHandled = async <T,>(
     req: Request,
     fn: () => Promise<T>,
+    onCancel?: () => Promise<T>,
   ): Promise<T> => {
-    return runWithRouterStore(
-      { req },
-      (fns.unstable_interceptors ?? []).reduceRight(
-        (next, interceptor) => () => interceptor(next),
-        fn,
-      ),
-    );
+    return runWithRouterStore({ req }, async () => {
+      try {
+        return await (fns.unstable_interceptors ?? []).reduceRight(
+          (next, interceptor) => () => interceptor(next),
+          fn,
+        )();
+      } catch (error) {
+        if (!isRenderCancellation(error) || !onCancel) {
+          throw error;
+        }
+        return onCancel();
+      }
+    });
   };
   return {
     handleRequest: createRequestHandler({

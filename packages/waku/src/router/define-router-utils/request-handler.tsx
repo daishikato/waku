@@ -1,6 +1,8 @@
+// eslint-disable-next-line no-restricted-imports -- Discarded responses use Minimal's cancellation signal.
+import { unstable_renderCancellation as renderCancellation } from 'waku/internals';
 import {
-  unstable_createCustomError as createCustomError,
   unstable_getErrorInfo as getErrorInfo,
+  unstable_isRenderCancellation as isRenderCancellation,
 } from 'waku/minimal/server';
 import type {
   Unstable_HandleRequest as HandleRequest,
@@ -69,7 +71,11 @@ export const createRequestHandler = ({
 }: {
   resolve: Resolve;
   routeEntries: ReturnType<typeof createRouteEntries>;
-  runHandled: <T>(req: Request, fn: () => Promise<T>) => Promise<T>;
+  runHandled: <T>(
+    req: Request,
+    fn: () => Promise<T>,
+    onCancel?: () => Promise<T>,
+  ) => Promise<T>;
 }): HandleRequest => {
   const requestElementCache = createElementCache();
   let requestElementCacheInit: Promise<void> | undefined;
@@ -79,32 +85,32 @@ export const createRequestHandler = ({
     input,
     { renderRsc, renderHtml, renderHtmlFallback, loadBuildMetadata },
   ) => {
-    return runHandled(input.req, async () => {
+    const redirectResponse = () => {
+      const requested = getRouteIntent().value;
+      if (!requested || !('location' in requested)) {
+        return undefined;
+      }
+      const url = new URL(input.req.url);
+      const base = url.pathname.slice(
+        0,
+        url.pathname.length - input.pathname.length,
+      );
+      const target = new URL(requested.location, input.req.url);
+      const location = requested.location.startsWith('/')
+        ? base + target.pathname + target.search + target.hash
+        : target.href;
+      return new Response(null, {
+        status: input.req.method === 'POST' ? 303 : requested.status,
+        headers: {
+          location,
+          'cache-control': 'private, no-store',
+        },
+      });
+    };
+    const handleRequest = async () => {
       const intent = getRouteIntent();
       const renderRscWithIntent: RenderRsc = (elements, options) =>
         renderRsc({ ...elements, [INTENT_ID]: intent.promise }, options);
-      const redirectResponse = () => {
-        const requested = intent.value;
-        if (!requested || !('location' in requested)) {
-          return undefined;
-        }
-        const url = new URL(input.req.url);
-        const base = url.pathname.slice(
-          0,
-          url.pathname.length - input.pathname.length,
-        );
-        const target = new URL(requested.location, input.req.url);
-        const location = requested.location.startsWith('/')
-          ? base + target.pathname + target.search + target.hash
-          : target.href;
-        return new Response(null, {
-          status: input.req.method === 'POST' ? 303 : requested.status,
-          headers: {
-            location,
-            'cache-control': 'private, no-store',
-          },
-        });
-      };
       requestElementCacheInit ??= (async () => {
         const cachedElementsMetadata = await loadBuildMetadata(
           ROUTER_METADATA.cachedElements,
@@ -177,7 +183,11 @@ export const createRequestHandler = ({
         };
         setRerender(rerender);
         try {
-          const value = await fn();
+          const value = await fn().catch((error: unknown) => {
+            if (!isRenderCancellation(error)) {
+              throw error;
+            }
+          });
           return { value, entries: await entriesPromise, isOrigin };
         } finally {
           rendered = true;
@@ -237,6 +247,9 @@ export const createRequestHandler = ({
             requestElementCache,
           );
         } catch (e) {
+          if (isRenderCancellation(e)) {
+            return renderRscWithIntent({});
+          }
           const info = getErrorInfo(e);
           if (info?.location && info.status !== 404) {
             const redirected = await getEntriesForRedirect(info.location);
@@ -272,7 +285,9 @@ export const createRequestHandler = ({
           }
           return null;
         }
-        return renderRscWithIntent(entries.elements, { etags: entries.etags });
+        return renderRscWithIntent(entries.elements, {
+          etags: entries.etags,
+        });
       };
 
       const handleCallRequest = async ({
@@ -316,7 +331,10 @@ export const createRequestHandler = ({
           pathnameToRoutePath(pathname),
           query,
         ).catch((error) => {
-          if (getErrorInfo(error)?.status !== 404) {
+          if (
+            !isRenderCancellation(error) &&
+            getErrorInfo(error)?.status !== 404
+          ) {
             throw error;
           }
           return null;
@@ -329,18 +347,19 @@ export const createRequestHandler = ({
           const url = new URL(req.url);
           url.pathname = pathname;
           const apiReq = new Request(url, req);
-          const response = await resolved(apiReq);
+          const response = await resolved(apiReq).catch((error: unknown) => {
+            if (!isRenderCancellation(error)) {
+              throw error;
+            }
+            return new Response(null);
+          });
           const redirect = redirectResponse();
           if (redirect) {
-            await response.body?.cancel(
-              createCustomError('Redirect', intent.value!),
-            );
+            await response.body?.cancel(renderCancellation);
             return redirect;
           }
           if (intent.value?.status === 404) {
-            await response.body?.cancel(
-              createCustomError('Not Found', intent.value),
-            );
+            await response.body?.cancel(renderCancellation);
             return new Response('Not Found', { status: 404 });
           }
           return response;
@@ -373,7 +392,7 @@ export const createRequestHandler = ({
               () => (actionResult ??= tryAction()),
               () => [rscPath, rscParams] as const,
             );
-            formState = value.action ? value.formState : undefined;
+            formState = value?.action ? value.formState : undefined;
             entries = {
               elements: { ...entries.elements, ...rerendered.elements },
               etags: { ...entries.etags, ...rerendered.etags },
@@ -399,15 +418,11 @@ export const createRequestHandler = ({
           const requested = intent.value;
           const redirect = redirectResponse();
           if (redirect) {
-            await response.body?.cancel(
-              createCustomError('Redirect', requested!),
-            );
+            await response.body?.cancel(renderCancellation);
             return redirect;
           }
           if (requested?.status === 404 && pathname !== '/404') {
-            await response.body?.cancel(
-              createCustomError('Not Found', requested),
-            );
+            await response.body?.cancel(renderCancellation);
             return (await routeEntries.has404())
               ? renderPage('/404', query, 404)
               : new Response('Not Found', { status: 404 });
@@ -431,8 +446,12 @@ export const createRequestHandler = ({
           }
         } catch (e) {
           const info = getErrorInfo(e);
-          if (info?.status !== 404) {
+          if (!isRenderCancellation(e) && info?.status !== 404) {
             throw e;
+          }
+          const redirect = redirectResponse();
+          if (redirect) {
+            return redirect;
           }
         }
         if (await routeEntries.has404()) {
@@ -452,6 +471,18 @@ export const createRequestHandler = ({
       if (input.type === 'http') {
         return handleHttpRequest(input);
       }
+    };
+    return runHandled(input.req, handleRequest, async () => {
+      const intent = getRouteIntent();
+      if (input.type === 'http') {
+        return (
+          redirectResponse() ??
+          new Response(null, {
+            status: intent.value?.status === 404 ? 404 : 200,
+          })
+        );
+      }
+      return renderRsc({ [INTENT_ID]: intent.promise });
     });
   };
 };

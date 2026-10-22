@@ -4,6 +4,10 @@ import {
   getErrorInfo,
 } from './lib/utils-isomorphic/custom-errors.js';
 import { sanitizeLog } from './lib/utils-isomorphic/log.js';
+import {
+  CANCEL_RENDER_DIGEST,
+  isRenderCancellation,
+} from './lib/utils-isomorphic/render-cancellation.js';
 import { bytesToStream, streamToBytes } from './lib/utils-isomorphic/stream.js';
 
 export { getEnv } from './lib/env.js';
@@ -15,6 +19,9 @@ export async function serializeRsc(element: unknown): Promise<Uint8Array> {
       {},
       {
         onError: (e: unknown) => {
+          if (isRenderCancellation(e)) {
+            return CANCEL_RENDER_DIGEST;
+          }
           if (!getErrorInfo(e)) {
             console.error('Error during rendering:', sanitizeLog(e));
           }

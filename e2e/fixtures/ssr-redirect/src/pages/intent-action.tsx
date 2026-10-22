@@ -1,4 +1,4 @@
-import { redirect } from 'waku/router/server';
+import { requestRedirect } from 'waku/router/server';
 import { IntentForm } from '../components/intent-form.js';
 
 export default function IntentAction() {
@@ -9,7 +9,7 @@ export default function IntentAction() {
         label="Intent redirect action"
         action={async () => {
           'use server';
-          redirect('/destination');
+          requestRedirect('/destination');
           return 'saved';
         }}
       />

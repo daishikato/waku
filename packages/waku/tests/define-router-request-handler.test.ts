@@ -15,11 +15,17 @@ import {
 } from '../src/router/isomorphic-utils/router-protocol.js';
 import {
   getRequest,
-  unstable_notFound,
-  unstable_redirect,
   unstable_rerenderRoute,
   unstable_setNonce,
 } from '../src/router/server.js';
+
+// Exercise the CustomError protocol accepted from older Waku servers.
+function legacyNotFound(): never {
+  throw unstable_createCustomError('Not Found', { status: 404 });
+}
+function legacyRedirect(location: string, status = 307): never {
+  throw unstable_createCustomError('Redirect', { status, location });
+}
 
 const intentPromise = expect.objectContaining({
   then: expect.any(Function),
@@ -308,7 +314,7 @@ describe('request dispatch', () => {
     const utils = makeUtils();
     await handleRequest(
       callInput(async () => {
-        unstable_redirect('/dest?a=1' as never);
+        legacyRedirect('/dest?a=1' as never);
       }),
       utils,
     );
@@ -326,7 +332,7 @@ describe('request dispatch', () => {
     await expect(
       handleRequest(
         callInput(async () => {
-          unstable_redirect('/nowhere' as never);
+          legacyRedirect('/nowhere' as never);
         }),
         utils,
       ),
@@ -368,7 +374,7 @@ describe('request dispatch', () => {
     const utils = makeUtils();
     await handleRequest(
       callInput(async () => {
-        unstable_redirect('/dest', 303);
+        legacyRedirect('/dest', 303);
       }),
       utils,
     );
@@ -432,7 +438,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_notFound();
+          legacyNotFound();
         },
       },
     };
@@ -473,7 +479,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_notFound();
+          legacyNotFound();
         },
       },
     };
@@ -513,7 +519,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/dest?a=1' as never);
+          legacyRedirect('/dest?a=1' as never);
         },
       },
     };
@@ -537,7 +543,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/dest' as never);
+          legacyRedirect('/dest' as never);
         },
       },
     };
@@ -564,7 +570,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/dest' as never);
+          legacyRedirect('/dest' as never);
         },
       },
     };
@@ -600,7 +606,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/dest' as never);
+          legacyRedirect('/dest' as never);
         },
       },
     };
@@ -636,7 +642,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/gone' as never);
+          legacyRedirect('/gone' as never);
         },
       },
     };
@@ -662,7 +668,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_notFound();
+          legacyNotFound();
         },
       },
     };
@@ -672,7 +678,7 @@ describe('request dispatch', () => {
     const utils = makeUtils();
     const err = await handleRequest(
       callInput(async () => {
-        unstable_redirect('/dest');
+        legacyRedirect('/dest');
       }),
       utils,
     ).catch((e: unknown) => e);
@@ -689,7 +695,7 @@ describe('request dispatch', () => {
       routeElement: {
         isStatic: false,
         renderer: () => {
-          unstable_redirect('/onward' as never);
+          legacyRedirect('/onward' as never);
         },
       },
     };
@@ -699,7 +705,7 @@ describe('request dispatch', () => {
     const utils = makeUtils();
     const err = await handleRequest(
       callInput(async () => {
-        unstable_redirect('/dest');
+        legacyRedirect('/dest');
       }),
       utils,
     ).catch((e: unknown) => e);
@@ -761,7 +767,7 @@ describe('request dispatch', () => {
     const utils = makeUtils();
     utils.renderHtml.mockImplementation(async (_stream, _html, options) => {
       if (options.unstable_rethrowNotFound) {
-        unstable_notFound();
+        legacyNotFound();
       }
       return new Response('not found', { status: options.status ?? 200 });
     });

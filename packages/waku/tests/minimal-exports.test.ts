@@ -29,6 +29,7 @@ const clientExports = [
   'Slot_UNSTABLE',
   'unstable_combineElements',
   'unstable_getErrorInfo',
+  'unstable_isRenderCancellation',
   'unstable_isImmutableElement',
   'useElementsPromise_UNSTABLE',
   'useFetchRsc_UNSTABLE',
@@ -39,9 +40,11 @@ const clientExports = [
 
 const serverExports = [
   'unstable_buildElements',
+  'unstable_cancelRender',
   'unstable_createCustomError',
   'unstable_formatRscUrl',
   'unstable_getErrorInfo',
+  'unstable_isRenderCancellation',
   'unstable_parseRequest',
 ];
 

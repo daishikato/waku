@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
+import { unstable_isRenderCancellation as isRenderCancellation } from '../src/minimal/server.js';
 import { createElementCache } from '../src/router/define-router-utils/element-cache.js';
 import {
   getRouteIntent,
   runWithRouterStore,
 } from '../src/router/define-router-utils/request-store.js';
 import {
-  notFound,
-  redirect,
+  requestNotFound,
+  requestRedirect,
   unstable_defineRouter,
+  unstable_notFound,
+  unstable_redirect,
 } from '../src/router/server.js';
 
 vi.mock('../src/server.js', () => ({
@@ -31,10 +34,190 @@ const expectPending = async (promise: PromiseLike<unknown>) => {
 };
 
 describe('intent metadata', () => {
+  it('cancels an interceptor before resolution while preserving its redirect intent', async () => {
+    const resolve = vi.fn(async () => null);
+    const router = unstable_defineRouter({
+      resolve,
+      getHas404: async () => false,
+      unstable_interceptors: [async () => unstable_redirect('/login')],
+    });
+    const utils = {
+      renderRsc: vi.fn(
+        async (_elements: Record<string, unknown>) => new ReadableStream(),
+      ),
+      renderHtml: vi.fn(),
+      renderHtmlFallback: vi.fn(),
+      loadBuildMetadata: vi.fn(),
+    };
+    const document = await router.handleRequest(
+      {
+        type: 'http',
+        pathname: '/private',
+        req: new Request('http://localhost/base/private'),
+      },
+      utils,
+    );
+    expect((document as Response).status).toBe(307);
+    expect((document as Response).headers.get('location')).toBe('/base/login');
+    await router.handleRequest(
+      {
+        type: 'rsc',
+        pathname: '/RSC/R/private',
+        rscPath: 'R/private',
+        rscParams: undefined,
+        req: new Request('http://localhost/RSC/R/private'),
+      },
+      utils,
+    );
+    const elements = utils.renderRsc.mock.calls[0]![0];
+    expect(JSON.parse(await (elements.INTENT as Promise<string>))).toEqual({
+      status: 307,
+      location: '/login',
+    });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('does not inherit the 404 probe cancellation on a normal page', async () => {
+    const router = unstable_defineRouter({
+      resolve: async (path) =>
+        path === '/404'
+          ? unstable_notFound()
+          : {
+              elements: {
+                root: { render: () => 'root' },
+                route: { render: () => 'page' },
+              },
+            },
+    });
+    const renderRsc = vi.fn(async (elements) => {
+      await expectPending(elements.INTENT);
+      return new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      });
+    });
+    await router.handleRequest(
+      {
+        type: 'rsc',
+        pathname: '/RSC/R/page',
+        rscPath: 'R/page',
+        rscParams: undefined,
+        req: new Request('http://localhost/RSC/R/page'),
+      },
+      {
+        renderRsc,
+        renderHtml: vi.fn(),
+        renderHtmlFallback: vi.fn(),
+        loadBuildMetadata: vi.fn(),
+      },
+    );
+    expect(renderRsc).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [unstable_notFound, { status: 404 }],
+    [() => unstable_redirect('/next'), { status: 307, location: '/next' }],
+  ])(
+    'deprecated helpers record intent and stop execution with a generic cancellation',
+    async (invoke, expected) => {
+      await withinRequest(async () => {
+        let cancellation: unknown;
+        try {
+          invoke();
+          throw new Error('execution continued');
+        } catch (error) {
+          cancellation = error;
+        }
+        expect(isRenderCancellation(cancellation)).toBe(true);
+        expect(typeof cancellation).toBe('symbol');
+        expect(JSON.parse((await getRouteIntent().promise)!)).toEqual(expected);
+      });
+    },
+  );
+
+  it('transports a cancelled resolver redirect as intent without resolving its destination', async () => {
+    const resolve = vi.fn(async () => unstable_redirect('/next?q=one'));
+    const router = unstable_defineRouter({
+      resolve,
+      getHas404: async () => false,
+    });
+    const renderRsc = vi.fn(async (elements) => {
+      expect(Object.keys(elements)).toEqual(['INTENT']);
+      expect(JSON.parse(await elements.INTENT)).toEqual({
+        status: 307,
+        location: '/next?q=one',
+      });
+      return new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      });
+    });
+    await router.handleRequest(
+      {
+        type: 'rsc',
+        pathname: '/RSC/R/old',
+        rscPath: 'R/old',
+        rscParams: undefined,
+        req: new Request('http://localhost/RSC/R/old'),
+      },
+      {
+        renderRsc,
+        renderHtml: vi.fn(),
+        renderHtmlFallback: vi.fn(),
+        loadBuildMetadata: vi.fn(),
+      },
+    );
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(renderRsc).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a cancelled resolver redirect as an HTTP response without JavaScript', async () => {
+    const router = unstable_defineRouter({
+      resolve: async () => unstable_redirect('/next'),
+      getHas404: async () => false,
+    });
+    const response = await router.handleRequest(
+      {
+        type: 'http',
+        pathname: '/old',
+        req: new Request('http://localhost/old'),
+      },
+      {
+        renderRsc: vi.fn(),
+        renderHtml: vi.fn(),
+        renderHtmlFallback: vi.fn(),
+        loadBuildMetadata: vi.fn(),
+      },
+    );
+    expect((response as Response).status).toBe(307);
+    expect((response as Response).headers.get('location')).toBe('/next');
+  });
+
+  it('replays an immutable factory intent after its render was cancelled', async () => {
+    const saved = vi.fn();
+    const cache = createElementCache(saved);
+    await withinRequest(() =>
+      cache.set('slot/cancelled', () => unstable_notFound()),
+    );
+    const restored = createElementCache();
+    restored.preload(
+      ...(saved.mock.calls[0] as [
+        string,
+        Parameters<typeof restored.preload>[1],
+      ]),
+    );
+    await withinRequest(async () => {
+      expect(await restored.get('slot/cancelled')).toBeNull();
+      expect(getRouteIntent().value).toEqual({ status: 404 });
+    });
+  });
+
   it('encodes Unicode destinations and preserves existing escapes in HTTP headers', async () => {
     const router = unstable_defineRouter({
       resolve: async () => {
-        redirect('/日本?q=café&escaped=%2F');
+        requestRedirect('/日本?q=café&escaped=%2F');
         return null;
       },
       getHas404: async () => false,
@@ -62,7 +245,7 @@ describe('intent metadata', () => {
   it('delivers a resolver intent even when no route elements are returned', async () => {
     const router = unstable_defineRouter({
       resolve: async () => {
-        redirect('/destination');
+        requestRedirect('/destination');
         return null;
       },
       getHas404: async () => false,
@@ -164,7 +347,7 @@ describe('intent metadata', () => {
     });
     const formState = { message: 'missing' };
     const tryAction = vi.fn(async () => {
-      notFound();
+      requestNotFound();
       return { action: true as const, formState };
     });
     const renderHtml = vi.fn(
@@ -202,7 +385,7 @@ describe('intent metadata', () => {
   it('honors a resolver notFound before a no-SSR fallback', async () => {
     const router = unstable_defineRouter({
       resolve: async () => {
-        notFound();
+        requestNotFound();
         return {
           noSsr: true,
           elements: {
@@ -236,7 +419,7 @@ describe('intent metadata', () => {
       const intent = getRouteIntent();
       const value = (() => {
         try {
-          redirect('/login');
+          requestRedirect('/login');
         } catch {
           throw new Error('navigation was thrown');
         }
@@ -255,7 +438,7 @@ describe('intent metadata', () => {
     await withinRequest(async () => {
       const intent = getRouteIntent();
       controller.abort();
-      notFound();
+      requestNotFound();
       await expectPending(intent.promise);
       expect(intent.value).toBeUndefined();
     }, controller.signal);
@@ -266,13 +449,13 @@ describe('intent metadata', () => {
     const first = withinRequest(async () => {
       const intent = getRouteIntent();
       await gate.promise;
-      redirect('/first');
-      notFound();
+      requestRedirect('/first');
+      requestNotFound();
       return intent.promise;
     });
     const second = withinRequest(async () => {
       const intent = getRouteIntent();
-      notFound();
+      requestNotFound();
       return intent.promise;
     });
     gate.resolve();
@@ -288,7 +471,7 @@ describe('intent metadata', () => {
     const cache = createElementCache(saved);
     await withinRequest(async () => {
       await cache.set('slot/route', () => {
-        redirect('/cached');
+        requestRedirect('/cached');
         return 'cached element';
       });
       expect(getRouteIntent().value).toEqual({
@@ -313,12 +496,12 @@ describe('intent metadata', () => {
     await withinRequest(async () => {
       const cache = createElementCache();
       const first = cache.set('first', async () => {
-        redirect('/first');
+        requestRedirect('/first');
         await gate.promise;
         return 'first slot';
       });
       await cache.set('second', () => {
-        redirect('/second');
+        requestRedirect('/second');
         return 'second slot';
       });
       expect(getRouteIntent().value).toEqual({
@@ -338,7 +521,7 @@ describe('intent metadata', () => {
     await withinRequest(async () => {
       let detached!: Promise<void>;
       await cache.set('slot', () => {
-        detached = gate.promise.then(() => redirect('/detached'));
+        detached = gate.promise.then(() => requestRedirect('/detached'));
         return 'cached element';
       });
       gate.resolve();
@@ -357,7 +540,7 @@ describe('intent metadata', () => {
     await withinRequest(async () => {
       const pending = cache.set('slot', async () => {
         await gate.promise;
-        redirect('/cached');
+        requestRedirect('/cached');
         return 'cached element';
       });
       controller.abort();

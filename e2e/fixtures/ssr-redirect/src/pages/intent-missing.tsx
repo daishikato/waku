@@ -1,7 +1,7 @@
-import { notFound } from 'waku/router/server';
+import { requestNotFound } from 'waku/router/server';
 
 export default function IntentMissing() {
-  notFound();
+  requestNotFound();
   return null;
 }
 

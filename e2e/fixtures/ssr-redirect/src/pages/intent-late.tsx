@@ -1,9 +1,9 @@
 import { Suspense } from 'react';
-import { redirect } from 'waku/router/server';
+import { requestRedirect } from 'waku/router/server';
 
 async function LateRedirect() {
   await fetch(`${process.env.WAKU_E2E_EXTERNAL_ORIGIN}/redirect-gate`);
-  redirect('/destination');
+  requestRedirect('/destination');
   return null;
 }
 
