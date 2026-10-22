@@ -5,6 +5,7 @@ import {
   Root_UNSTABLE as Root,
   Slot_UNSTABLE as Slot,
 } from 'waku/minimal/client';
+import { WeakPromiseRoot } from './components/WeakPromise';
 
 const ClientRoot = () => {
   const [key, setKey] = useState(0);
@@ -28,7 +29,11 @@ const ClientRoot = () => {
 
 const rootElement = (
   <StrictMode>
-    <ClientRoot />
+    {window.location.pathname === '/weak' ? (
+      <WeakPromiseRoot />
+    ) : (
+      <ClientRoot />
+    )}
   </StrictMode>
 );
 

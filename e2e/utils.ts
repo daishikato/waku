@@ -59,11 +59,14 @@ export const getAvailablePort = async (): Promise<number> => {
 
 const PORT_WAIT_TIMEOUT_MS = 30_000;
 
-export const waitForPortReady = async (port: number): Promise<void> =>
+export const waitForPortReady = async (
+  port: number,
+  host = 'localhost',
+): Promise<void> =>
   new Promise((resolve, reject) => {
     const start = Date.now();
     const tryConnect = () => {
-      const socket = createConnection(port);
+      const socket = createConnection(port, host);
       socket.once('connect', () => {
         socket.end();
         resolve();
@@ -183,6 +186,7 @@ export const prepareNormalSetup = (
     options?: {
       cmd?: string | undefined;
       portFlag?: string | undefined;
+      host?: string | undefined;
       onServerOutput?: (data: string) => void;
     },
   ) => {
@@ -207,15 +211,16 @@ export const prepareNormalSetup = (
       cmd = options.cmd;
     }
     const portFlag = options?.portFlag ?? '-p';
+    const hostFlag = options?.host ? `--host ${options.host}` : '';
     const port = await getAvailablePort();
-    const cp = runShell(`${cmd} ${portFlag} ${port}`, fixtureDir);
+    const cp = runShell(`${cmd} ${hostFlag} ${portFlag} ${port}`, fixtureDir);
     debugChildProcess(cp, fileURLToPath(import.meta.url));
     if (options?.onServerOutput) {
       const callback = options.onServerOutput;
       cp.stdout?.on('data', (data) => callback(data.toString()));
       cp.stderr?.on('data', (data) => callback(data.toString()));
     }
-    await waitForPortReady(port);
+    await waitForPortReady(port, options?.host);
     const stopApp = async () => {
       await terminate(cp);
     };
@@ -347,10 +352,6 @@ export const prepareStandaloneSetup = (fixtureName: string) => {
                 pkg.overrides = pnpmOverrides;
                 break;
               }
-              case 'pnpm': {
-                pkg.pnpm = { overrides: pnpmOverrides };
-                break;
-              }
               case 'yarn': {
                 pkg.resolutions = pnpmOverrides;
                 break;
@@ -362,6 +363,17 @@ export const prepareStandaloneSetup = (fixtureName: string) => {
           }
           writeFileSync(f, JSON.stringify(pkg, null, 2), 'utf8');
         }
+      }
+      if (packageManager === 'pnpm') {
+        // pnpm 11 reads overrides from the workspace config, even outside a monorepo.
+        const workspaceFile = join(standaloneDir, 'pnpm-workspace.yaml');
+        const workspace = existsSync(workspaceFile)
+          ? readFileSync(workspaceFile, 'utf8')
+          : '';
+        writeFileSync(
+          workspaceFile,
+          `${workspace}\noverrides: ${JSON.stringify(pnpmOverrides)}\n`,
+        );
       }
       if (packageManager !== 'pnpm') {
         patchMonorepoPackageJson(standaloneDir);
