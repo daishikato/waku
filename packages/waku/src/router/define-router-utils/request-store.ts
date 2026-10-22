@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { unstable_createWeakPromise as createWeakPromise } from 'waku/minimal/server';
+// eslint-disable-next-line no-restricted-imports -- Router shares core's internal weak-promise transport.
+import { unstable_createWeakPromise as createWeakPromise } from 'waku/internals';
 import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 
 export type HandlerInterceptor = <T>(next: () => Promise<T>) => Promise<T>;

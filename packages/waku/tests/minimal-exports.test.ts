@@ -40,7 +40,6 @@ const clientExports = [
 const serverExports = [
   'unstable_buildElements',
   'unstable_createCustomError',
-  'unstable_createWeakPromise',
   'unstable_formatRscUrl',
   'unstable_getErrorInfo',
   'unstable_parseRequest',

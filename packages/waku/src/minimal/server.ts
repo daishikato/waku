@@ -9,7 +9,6 @@ export type {
   Unstable_RenderHtmlFallback,
 } from '../lib/types.js';
 export type { Etags as Unstable_Etags } from '../lib/utils-isomorphic/etags.js';
-export { createWeakPromise as unstable_createWeakPromise } from '../lib/utils-server/weak-promise.js';
 export { buildElements as unstable_buildElements } from '../lib/utils-server/build-elements.js';
 export {
   createCustomError as unstable_createCustomError,
