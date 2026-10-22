@@ -35,6 +35,7 @@ import {
   useActionRouting_UNSTABLE as useActionRouting,
   useRouterCache_UNSTABLE as useRouterCache,
 } from '../src/router/client-core.js';
+import { INTENT_ID } from '../src/router/isomorphic-utils/router-protocol.js';
 import {
   unstable_defineRouter as defineRouter,
   unstable_notFound as notFound,
@@ -111,6 +112,14 @@ const mount = async (
     buildId: '',
     onError: () => undefined,
   });
+  // This JSON harness omits weak entries that have no result at EOF.
+  const renderRsc = renderUtils.renderRsc;
+  renderUtils.renderRsc = async (elements, options) => {
+    const data = { ...elements };
+    const intent = data[INTENT_ID] as { value?: string } | undefined;
+    data[INTENT_ID] = intent?.value;
+    return renderRsc(data, options);
+  };
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
     const req = new Request(new URL(String(url), window.location.href), init);
     const parsed = parseRequest(req);

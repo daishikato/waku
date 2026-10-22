@@ -26,6 +26,7 @@ import {
 } from '../client-core-utils/route-url.js';
 import type { RouteProps } from '../isomorphic-utils/route-path.js';
 import {
+  INTENT_ID,
   IS_STATIC_ID,
   ROUTE_ID,
   has404FromElements,
@@ -68,6 +69,7 @@ type Navigation = {
   route: RouteProps;
   changeRoute: ChangeRoute;
   getElements: () => Elements;
+  getPendingRoute: () => Pick<RouteProps, 'path' | 'query'> | undefined;
   error: NavigationError | undefined;
 };
 
@@ -271,6 +273,9 @@ export const useNavigation = (
       ) {
         queueCommit(makeStateForAttempt(initialAttempt, options.history), {
           [ROUTE_ID]: [nextRoute.path, nextRoute.query],
+          [INTENT_ID]: isSameRscRoute(nextRoute, settledRoute)
+            ? getElements()[INTENT_ID]
+            : cache.getStaticRouteIntent(nextRoute),
         });
         return;
       }
@@ -312,6 +317,7 @@ export const useNavigation = (
         startTransition(() => {
           queueCommit(makeStateForAttempt(outcome, historyIntent), {
             [ROUTE_ID]: [outcome.route.path, outcome.route.query],
+            [INTENT_ID]: cache.getStaticRouteIntent(outcome.route),
           });
         });
         return;
@@ -441,6 +447,7 @@ export const useNavigation = (
     route,
     changeRoute,
     getElements,
+    getPendingRoute,
     error: navigationError,
   };
 };

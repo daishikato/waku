@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { unstable_createWeakPromise as createWeakPromise } from 'waku/minimal/server';
+import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 
 export type HandlerInterceptor = <T>(next: () => Promise<T>) => Promise<T>;
 
@@ -10,9 +12,92 @@ export type RouterStore = {
   rscParams?: unknown;
   rerender?: Rerender;
   nonce?: string;
+  intent?: ReturnType<typeof createRouteIntent>;
 };
 
 const routerStorage = new AsyncLocalStorage<RouterStore>();
+
+const createRouteIntent = (
+  req: Request,
+  forward?: (intent: RouteIntentData) => void,
+) => {
+  const { promise, resolve } = createWeakPromise();
+  let value: RouteIntentData | undefined;
+  let closed = req.signal.aborted;
+  const finish = () => {
+    closed = true;
+    req.signal.removeEventListener('abort', finish);
+  };
+  if (!closed) {
+    req.signal.addEventListener('abort', finish, { once: true });
+  }
+  return {
+    promise,
+    get value() {
+      return value;
+    },
+    record(intent: RouteIntentData) {
+      if (closed) {
+        return;
+      }
+      value = intent;
+      finish();
+      resolve(JSON.stringify(intent));
+      forward?.(intent);
+    },
+    finish,
+  };
+};
+
+export const getRouteIntent = () => {
+  const store = routerStorage.getStore();
+  if (!store) {
+    throw new Error('Route intent is not available.');
+  }
+  return (store.intent ??= createRouteIntent(store.req));
+};
+
+export const finishRouteIntent = (stream: ReadableStream<Uint8Array>) => {
+  const intent = getRouteIntent();
+  const reader = stream.getReader();
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            intent.finish();
+            controller.close();
+          } else {
+            controller.enqueue(value);
+          }
+        } catch (error) {
+          intent.finish();
+          controller.error(error);
+        }
+      },
+      cancel(reason) {
+        intent.finish();
+        return reader.cancel(reason);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+};
+
+export const captureRouteIntent = async <T>(fn: () => Promise<T>) => {
+  const store = routerStorage.getStore();
+  if (!store) {
+    return { result: await fn(), intent: undefined };
+  }
+  const intent = createRouteIntent(store.req, getRouteIntent().record);
+  try {
+    const result = await runWithRouterStore({ ...store, intent }, fn);
+    return { result, intent: intent.value };
+  } finally {
+    intent.finish();
+  }
+};
 
 export const runWithRouterStore = <T>(store: RouterStore, fn: () => T): T =>
   routerStorage.run(store, fn);

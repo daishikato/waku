@@ -7,9 +7,14 @@ import {
 } from '../src/router/define-router.js';
 import { unstable_createRouteHref } from '../src/router/href-factory.js';
 import {
+  INTENT_ID,
   ROUTE_ID,
   encodeRoutePath,
 } from '../src/router/isomorphic-utils/router-protocol.js';
+
+const intentPromise = expect.objectContaining({
+  then: expect.any(Function),
+});
 
 vi.mock('../src/server.js', () => ({
   deserializeRsc: vi.fn().mockResolvedValue(null),
@@ -114,7 +119,7 @@ describe('define-router action requests', () => {
     expect(apiHandler).not.toHaveBeenCalled();
     expect(actionFn).toHaveBeenCalledWith('arg');
     expect(renderRsc).toHaveBeenCalledWith(
-      {},
+      { [INTENT_ID]: intentPromise },
       { value: 'action-result', etags: {} },
     );
   });

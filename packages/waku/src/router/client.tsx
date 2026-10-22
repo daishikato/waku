@@ -22,6 +22,7 @@ import {
   MissingRouteHandler,
   RenderErrorHandler,
 } from './client-utils/render-error.js';
+import { RouteIntent } from './client-utils/route-intent.js';
 import {
   RouterContext,
   dispatchChangeRoute,
@@ -189,6 +190,7 @@ const InnerRouter = ({
     route: currentRoute,
     changeRoute,
     getElements,
+    getPendingRoute,
     error: navigationError,
   } = useNavigation(elements, fallbackRoute, routeInterceptor);
 
@@ -227,9 +229,13 @@ const InnerRouter = ({
         route: currentRoute,
         changeRoute,
         getElements,
+        getPendingRoute,
       }}
     >
-      <RouterHostContext value={host}>{rootElement}</RouterHostContext>
+      <RouterHostContext value={host}>
+        <RouteIntent />
+        {rootElement}
+      </RouterHostContext>
     </RouterContext>
   );
 };
@@ -287,6 +293,7 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
           navigate: notAvailableInServer('navigate'),
         }}
       >
+        <RouteIntent />
         {rootElement}
       </RouterHostContext>
     </RouterContext>

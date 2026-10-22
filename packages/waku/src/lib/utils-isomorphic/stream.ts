@@ -3,6 +3,46 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+export function observeStreamEnd<T>(
+  stream: ReadableStream<T>,
+  onEnd: () => void,
+): ReadableStream<T> {
+  const reader = stream.getReader();
+  let ended = false;
+  const finish = () => {
+    ended = true;
+    onEnd();
+  };
+  return new ReadableStream<T>(
+    {
+      async pull(controller) {
+        try {
+          const part = await reader.read();
+          if (ended) {
+            return;
+          }
+          if (part.done) {
+            finish();
+            controller.close();
+          } else {
+            controller.enqueue(part.value);
+          }
+        } catch (error) {
+          if (!ended) {
+            finish();
+            controller.error(error);
+          }
+        }
+      },
+      cancel(reason) {
+        finish();
+        return reader.cancel(reason);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
 export const stringToStream = (str: string): ReadableStream => {
   return new ReadableStream({
     start(controller) {

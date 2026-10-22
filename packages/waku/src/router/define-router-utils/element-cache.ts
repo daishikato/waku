@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { Unstable_ElementSource as ElementSource } from 'waku/minimal/server';
 import { deserializeRsc, serializeRsc } from 'waku/server';
+import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
+import { captureRouteIntent, getRouteIntent } from './request-store.js';
 
 export const ROOT_SLOT_ID = 'root';
 
@@ -18,12 +20,26 @@ export const base64ToBytes = (base64: string) =>
 export type CacheId = string;
 
 export const createElementCache = (
-  onSerialize?: (cacheId: CacheId, serialized: string) => void,
+  onSerialize?: (
+    cacheId: CacheId,
+    serialized: string,
+    intent?: RouteIntentData,
+  ) => void,
 ) => {
   const cache = new Map<CacheId, Promise<Uint8Array>>();
+  const intents = new Map<CacheId, RouteIntentData>();
   return {
-    preload: (cacheId: CacheId, bytes: Uint8Array) => {
+    preload: (
+      cacheId: CacheId,
+      bytes: Uint8Array,
+      intent?: RouteIntentData,
+    ) => {
       cache.set(cacheId, Promise.resolve(bytes));
+      if (intent) {
+        intents.set(cacheId, intent);
+      } else {
+        intents.delete(cacheId);
+      }
     },
     has: (cacheId: CacheId) => cache.has(cacheId),
     get: (cacheId: CacheId) => {
@@ -31,19 +47,30 @@ export const createElementCache = (
       if (!cachedBytes) {
         return undefined;
       }
-      return cachedBytes.then((bytes) =>
-        deserializeRsc(bytes),
-      ) as Promise<ReactNode>;
+      return cachedBytes.then((bytes) => {
+        const intent = intents.get(cacheId);
+        if (intent) {
+          getRouteIntent().record(intent);
+        }
+        return deserializeRsc(bytes);
+      }) as Promise<ReactNode>;
     },
     set: (cacheId: CacheId, element: unknown) => {
       if (cache.has(cacheId)) {
         return;
       }
-      const bytesPromise = serializeRsc(element);
+      const bytesPromise = captureRouteIntent(async () =>
+        serializeRsc(typeof element === 'function' ? await element() : element),
+      ).then(({ result, intent }) => {
+        if (intent) {
+          intents.set(cacheId, intent);
+        }
+        return result;
+      });
       cache.set(cacheId, bytesPromise);
       if (onSerialize) {
         return bytesPromise.then((bytes) => {
-          onSerialize(cacheId, bytesToBase64(bytes));
+          onSerialize(cacheId, bytesToBase64(bytes), intents.get(cacheId));
         });
       }
     },
@@ -62,7 +89,7 @@ export const cacheElementSource = (
         ...source,
         render: async () => {
           if (!cache.has(cacheId)) {
-            await cache.set(cacheId, await source.render());
+            await cache.set(cacheId, source.render);
           }
           return cache.get(cacheId);
         },
