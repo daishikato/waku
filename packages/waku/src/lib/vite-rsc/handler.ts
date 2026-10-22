@@ -22,6 +22,10 @@ import { getDigest, getErrorInfo } from '../utils-isomorphic/custom-errors.js';
 import { sanitizeLog } from '../utils-isomorphic/log.js';
 import { joinPath } from '../utils-isomorphic/path.js';
 import { DEBUG_ID_HEADER } from '../utils-isomorphic/react-debug-channel.js';
+import {
+  CANCEL_RENDER_DIGEST,
+  isRenderCancellation,
+} from '../utils-isomorphic/render-cancellation.js';
 import { encodeRscPath } from '../utils-isomorphic/rsc-path.js';
 import { stringToStream } from '../utils-isomorphic/stream.js';
 import { resolveRedirectLocation } from '../utils-server/redirect.js';
@@ -69,7 +73,9 @@ const toProcessRequest =
       createDebugChannel,
       debugId,
       onError: (e) => {
-        const digest = getDigest(e);
+        const digest = isRenderCancellation(e)
+          ? CANCEL_RENDER_DIGEST
+          : getDigest(e);
         if (digest === undefined) {
           console.error('Error during rendering:', sanitizeLog(e));
         }
@@ -149,6 +155,9 @@ const toProcessBuild =
       loadSsrEntryModule,
       buildId: import.meta.env.WAKU_BUILD_ID ?? '',
       onError: (e) => {
+        if (isRenderCancellation(e)) {
+          return CANCEL_RENDER_DIGEST;
+        }
         if (!getErrorInfo(e)) {
           errors.push(e);
         }

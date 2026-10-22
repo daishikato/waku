@@ -1,7 +1,7 @@
-import { redirect } from 'waku/router/server';
+import { requestRedirect } from 'waku/router/server';
 
 export default function IntentStaticRedirect() {
-  redirect('/destination');
+  requestRedirect('/destination');
   return null;
 }
 

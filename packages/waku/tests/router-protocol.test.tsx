@@ -24,7 +24,10 @@ import {
   useFetchRsc_UNSTABLE as useFetchRsc,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
-import { unstable_parseRequest as parseRequest } from '../src/minimal/server.js';
+import {
+  unstable_createCustomError as createCustomError,
+  unstable_parseRequest as parseRequest,
+} from '../src/minimal/server.js';
 import {
   unstable_decideFollow as decideFollow,
   unstable_encodeRoutePath as encodeRoutePath,
@@ -38,8 +41,6 @@ import {
 import { INTENT_ID } from '../src/router/isomorphic-utils/router-protocol.js';
 import {
   unstable_defineRouter as defineRouter,
-  unstable_notFound as notFound,
-  unstable_redirect as redirect,
   unstable_rerenderRoute as rerenderRoute,
 } from '../src/router/server.js';
 
@@ -270,12 +271,15 @@ test('an omitted mutable slot still keeps the response route dynamic', async () 
   });
 });
 
-test('an eagerly resolved redirect reports the rendered destination to the client', async () => {
+test('a legacy eagerly resolved redirect reports the rendered destination to the client', async () => {
   const binding = await mount(
     defineRouter({
       resolve: async (path, query) => {
         if (path === '/old') {
-          redirect('/new?q=one');
+          throw createCustomError('Redirect', {
+            status: 307,
+            location: '/new?q=one',
+          });
         }
         return route(path + '?' + query);
       },
@@ -292,7 +296,7 @@ test('an eagerly resolved redirect reports the rendered destination to the clien
   });
 });
 
-test('a custom 404 reports its rendered route and enables following late not-found errors', async () => {
+test('a custom 404 reports its rendered route and enables following legacy not-found errors', async () => {
   const binding = await mount(
     defineRouter({
       resolve: async (path, query) =>
@@ -310,7 +314,7 @@ test('a custom 404 reports its rendered route and enables following late not-fou
   });
   let error: unknown;
   try {
-    notFound();
+    throw createCustomError('Not Found', { status: 404 });
   } catch (caught) {
     error = caught;
   }

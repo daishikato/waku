@@ -1,4 +1,4 @@
-import { notFound } from 'waku/router/server';
+import { requestNotFound } from 'waku/router/server';
 import { IntentForm } from '../components/intent-form.js';
 
 export default function IntentMissingAction() {
@@ -9,7 +9,7 @@ export default function IntentMissingAction() {
         label="Missing action"
         action={async () => {
           'use server';
-          notFound();
+          requestNotFound();
           return 'missing';
         }}
       />

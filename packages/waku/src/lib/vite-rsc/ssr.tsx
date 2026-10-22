@@ -12,6 +12,7 @@ import htmlTransform from 'virtual:vite-rsc-waku/html-transform';
 // Exception: SSR must share Minimal's slot context.
 import { INTERNAL_ServerRoot } from '../../minimal/client-runtime.js';
 import { getErrorInfo } from '../utils-isomorphic/custom-errors.js';
+import { isRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
 import { batchReadableStream } from '../utils-isomorphic/stream.js';
 import {
   createBootstrapScriptContent,
@@ -106,7 +107,7 @@ export const renderHtmlStream: RenderHtmlStream = async (
     if (info?.location || (options.rethrowNotFound && info?.status === 404)) {
       throw e;
     }
-    status = info?.status || 500;
+    status = isRenderCancellation(e) ? undefined : info?.status || 500;
     // SSR empty html and go full CSR on browser, which can revive RSC errors.
     const ssrErrorRoot = (
       <html>

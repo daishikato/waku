@@ -1,9 +1,6 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  type Unstable_HandleRequest as HandleRequest,
-  unstable_getErrorInfo,
-} from '../src/minimal/server.js';
+import { type Unstable_HandleRequest as HandleRequest } from '../src/minimal/server.js';
 import { unstable_createRouteHref } from '../src/router/base-types.js';
 import {
   getRequest,
@@ -144,10 +141,8 @@ describe('defineRouter route resolver', () => {
         utils,
       )
       .catch((error: unknown) => error);
-    expect(unstable_getErrorInfo(error)).toEqual({
-      status: 307,
-      location: href,
-    });
+    expect((error as Response).headers.get('location')).toBe(href);
+    expect((error as Response).status).toBe(307);
     expect(codec.serialize).toHaveBeenCalledExactlyOnceWith({ tag: 'a b' });
     expect(codec.parse).not.toHaveBeenCalled();
     expect(utils.renderHtml).not.toHaveBeenCalled();
@@ -367,7 +362,11 @@ describe('defineRouter route resolver', () => {
       expect.anything(),
     );
     expect(utils.renderRsc.mock.calls[0]![0]).not.toHaveProperty(HAS404_ID);
-    expect(await router.handleRequest(rscInput('/missing'), utils)).toBeNull();
+    await router.handleRequest(rscInput('/missing'), utils);
+    const missing = utils.renderRsc.mock.calls.at(-1)![0];
+    expect(JSON.parse(await (missing[INTENT_ID] as Promise<string>))).toEqual({
+      status: 404,
+    });
   });
   it('uses the same normalized route and query for document and RSC requests', async () => {
     const resolve = vi.fn<RouterOptions['resolve']>(async (path, query) =>
@@ -560,7 +559,7 @@ describe('defineRouter route resolver', () => {
     );
   });
 
-  it('returns a redirected route in the same RSC response', async () => {
+  it('returns a route intent and cancels the source slot for a redirect', async () => {
     const router = unstable_defineRouter({
       resolve: async (path, query) =>
         path === '/old'
@@ -578,11 +577,16 @@ describe('defineRouter route resolver', () => {
     await router.handleRequest(rscInput('/old'), utils);
     expect(utils.renderRsc).toHaveBeenCalledWith(
       expect.objectContaining({
-        [ROUTE_ID]: ['/next', 'q=one'],
-        'route:/next': 'q=one',
+        [ROUTE_ID]: ['/old', ''],
+        'route:/old': null,
       }),
       expect.anything(),
     );
+    const elements = utils.renderRsc.mock.calls[0]![0];
+    expect(JSON.parse(await (elements[INTENT_ID] as Promise<string>))).toEqual({
+      status: 307,
+      location: '/next?q=one',
+    });
   });
 
   it('keeps origin rerenders and action values in the client protocol', async () => {

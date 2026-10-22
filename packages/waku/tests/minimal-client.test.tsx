@@ -22,6 +22,7 @@ import {
 } from 'vitest';
 import { getErrorInfo } from '../src/lib/utils-isomorphic/custom-errors.js';
 import { ETAGS_ID } from '../src/lib/utils-isomorphic/etags.js';
+import { CANCEL_RENDER_DIGEST } from '../src/lib/utils-isomorphic/render-cancellation.js';
 import { unstable_callServerRsc } from '../src/minimal/client-runtime.js';
 import {
   clearInitialRscEntries,
@@ -123,6 +124,89 @@ afterEach(() => {
 });
 
 describe('minimal/client fetch', () => {
+  test('a cancelled Slot leaves siblings mounted and recovers when its element changes', async () => {
+    const cancellation = Object.assign(new Error('Flight error'), {
+      digest: CANCEL_RENDER_DIGEST,
+    });
+    const Cancelled = () => {
+      throw cancellation;
+    };
+    mocks.createFromFetch.mockReturnValue(
+      resolvedThenable({ main: <Cancelled />, sibling: 'sibling' }),
+    );
+    stubFetch();
+    let merge!: ReturnType<typeof useMergeElements_UNSTABLE>;
+    const Probe = () => {
+      const mergeElements = useMergeElements_UNSTABLE();
+      useEffect(() => {
+        merge = mergeElements;
+      }, [mergeElements]);
+      return null;
+    };
+    const caught = vi.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container, { onCaughtError: caught });
+    try {
+      await act(async () =>
+        root.render(
+          <Root initialRscPath="cancel">
+            <Probe />
+            <Slot id="main" />
+            <Slot id="sibling" />
+          </Root>,
+        ),
+      );
+      expect(container.textContent).toBe('sibling');
+      expect(caught).toHaveBeenCalledWith(cancellation, expect.anything());
+      await act(async () => {
+        await merge(Promise.resolve({ main: 'recovered' }));
+      });
+      expect(container.textContent).toBe('recoveredsibling');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  test('a Slot propagates application errors to the app error boundary', async () => {
+    const failure = new Error('application failure');
+    const Broken = () => {
+      throw failure;
+    };
+    mocks.createFromFetch.mockReturnValue(
+      resolvedThenable({ main: <Broken /> }),
+    );
+    stubFetch();
+    class AppBoundary extends Component<
+      { children: ReactNode },
+      { failed: boolean }
+    > {
+      state = { failed: false };
+      static getDerivedStateFromError(error: unknown) {
+        expect(error).toBe(failure);
+        return { failed: true };
+      }
+      render() {
+        return this.state.failed ? 'app fallback' : this.props.children;
+      }
+    }
+    const container = document.createElement('div');
+    const root = createRoot(container, { onCaughtError: vi.fn() });
+    try {
+      await act(async () =>
+        root.render(
+          <Root initialRscPath="failure">
+            <AppBoundary>
+              <Slot id="main" />
+            </AppBoundary>
+          </Root>,
+        ),
+      );
+      expect(container.textContent).toBe('app fallback');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   test('a fetch returns the decoded elements', async () => {
     // Minimal only fetches + decodes and hands the promise back to the caller.
     const fetchMock = vi.fn<typeof fetch>(

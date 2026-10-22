@@ -24,6 +24,7 @@ import {
   encodeFuncId,
   encodeRscPath,
 } from '../lib/utils-isomorphic/rsc-path.js';
+import { CancelRenderBoundary } from './client-utils/cancel-render.js';
 import {
   adoptElements,
   collectEtags,
@@ -535,9 +536,11 @@ export const Slot_UNSTABLE = ({
     throw new Error('Invalid element: ' + id);
   }
   return (
-    <ChildrenContextProvider value={children}>
-      {element as ReactNode}
-    </ChildrenContextProvider>
+    <CancelRenderBoundary element={element}>
+      <ChildrenContextProvider value={children}>
+        {element as ReactNode}
+      </ChildrenContextProvider>
+    </CancelRenderBoundary>
   );
 };
 
@@ -557,3 +560,4 @@ export const INTERNAL_ServerRoot = ({
 );
 
 export { getErrorInfo as unstable_getErrorInfo } from '../lib/utils-isomorphic/custom-errors.js';
+export { isRenderCancellation as unstable_isRenderCancellation } from '../lib/utils-isomorphic/render-cancellation.js';

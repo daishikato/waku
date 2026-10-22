@@ -1,9 +1,9 @@
 import { Suspense } from 'react';
-import { notFound } from 'waku/router/server';
+import { requestNotFound } from 'waku/router/server';
 
 async function LateNotFound() {
   await fetch(`${process.env.WAKU_E2E_EXTERNAL_ORIGIN}/not-found-gate`);
-  notFound();
+  requestNotFound();
   return null;
 }
 

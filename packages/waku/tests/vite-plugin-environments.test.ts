@@ -28,6 +28,7 @@ test('internals exposes only runtime APIs', () => {
     'unstable_createWeakPromise',
     'unstable_honoMiddleware',
     'unstable_produceMultiplexedStream',
+    'unstable_renderCancellation',
   ]);
 });
 
