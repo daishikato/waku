@@ -77,17 +77,12 @@ export const createRequestHandler = ({
 
   return async (
     input,
-    {
-      renderRsc: renderRscBase,
-      renderHtml,
-      renderHtmlFallback,
-      loadBuildMetadata,
-    },
+    { renderRsc, renderHtml, renderHtmlFallback, loadBuildMetadata },
   ) => {
     return runHandled(input.req, async () => {
       const intent = getRouteIntent();
-      const renderRsc: RenderRsc = (elements, options) =>
-        renderRscBase({ ...elements, [INTENT_ID]: intent.promise }, options);
+      const renderRscWithIntent: RenderRsc = (elements, options) =>
+        renderRsc({ ...elements, [INTENT_ID]: intent.promise }, options);
       const redirectResponse = () => {
         const requested = intent.value;
         if (!requested || !('location' in requested)) {
@@ -229,7 +224,9 @@ export const createRequestHandler = ({
           if (!entries) {
             return null;
           }
-          return renderRsc(entries.elements, { etags: entries.etags });
+          return renderRscWithIntent(entries.elements, {
+            etags: entries.etags,
+          });
         }
         let entries: RouteEntries | null = null;
         try {
@@ -246,7 +243,9 @@ export const createRequestHandler = ({
             if (!redirected) {
               throw e;
             }
-            return renderRsc(redirected.elements, { etags: redirected.etags });
+            return renderRscWithIntent(redirected.elements, {
+              etags: redirected.etags,
+            });
           }
           if (info?.status !== 404) {
             throw e;
@@ -269,11 +268,11 @@ export const createRequestHandler = ({
         }
         if (!entries) {
           if (intent.value) {
-            return renderRsc({});
+            return renderRscWithIntent({});
           }
           return null;
         }
-        return renderRsc(entries.elements, { etags: entries.etags });
+        return renderRscWithIntent(entries.elements, { etags: entries.etags });
       };
 
       const handleCallRequest = async ({
@@ -285,7 +284,7 @@ export const createRequestHandler = ({
             () => fn(...args),
             () => parseActionOrigin(input.req),
           );
-          return renderRsc(
+          return renderRscWithIntent(
             isOrigin
               ? { ...entries.elements, [IS_ORIGIN_ID]: true }
               : entries.elements,
@@ -300,7 +299,9 @@ export const createRequestHandler = ({
           if (!entries) {
             throw e;
           }
-          return renderRsc(entries.elements, { etags: entries.etags });
+          return renderRscWithIntent(entries.elements, {
+            etags: entries.etags,
+          });
         }
       };
 
@@ -379,7 +380,9 @@ export const createRequestHandler = ({
             };
           }
           const response = await renderHtml(
-            await renderRsc(entries.elements, { etags: entries.etags }),
+            await renderRscWithIntent(entries.elements, {
+              etags: entries.etags,
+            }),
             html,
             {
               rscPath,
