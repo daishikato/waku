@@ -71,7 +71,9 @@ const getServerFalse = () => false;
 
 const FollowRedirect = ({
   decision,
+  source,
 }: {
+  source: unknown;
   decision: Extract<FollowDecision, { type: 'follow' | 'leave' }>;
 }) => {
   const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
@@ -114,7 +116,7 @@ const FollowRedirect = ({
       return;
     }
     startFollow();
-  }, [decision.type, href]);
+  }, [decision.type, href, source]);
   return null;
 };
 
@@ -178,7 +180,7 @@ const IntentFollow = ({
   if (decision.type === 'none') {
     return <h1>Not Found</h1>;
   }
-  return <FollowRedirect decision={decision} />;
+  return <FollowRedirect decision={decision} source={pending} />;
 };
 
 // slot-thrown stop/none must leave this boundary so the fallback can render
@@ -262,7 +264,7 @@ class FollowBoundary extends Component<
       if (decision.type === 'stop' || decision.type === 'none') {
         throw decision.type === 'stop' ? decision.error : error;
       }
-      return <FollowRedirect decision={decision} />;
+      return <FollowRedirect decision={decision} source={error} />;
     }
     return this.props.children;
   }

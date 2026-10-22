@@ -341,7 +341,7 @@ test.describe('nav-api-spike', () => {
     await expect(page.getByTestId('owning-follow-count')).toHaveText('0');
   });
 
-  test('a load follow then a slot revisit is not skipped as a replay', async ({
+  test('a legacy load follow then a slot revisit is not skipped as a replay', async ({
     page,
   }) => {
     await page.goto(`http://localhost:${port}/mix`);
@@ -362,6 +362,26 @@ test.describe('nav-api-spike', () => {
     await expect(
       page.getByTestId('mix-host').getByTestId('follow-error'),
     ).toHaveCount(0);
+  });
+
+  test('fresh same-query intents share the load follow budget', async ({
+    page,
+  }) => {
+    let mixBFetches = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/RSC/R/mix-b.txt') {
+        mixBFetches += 1;
+      }
+    });
+    await page.goto(`http://localhost:${port}/mix-budget?same=1`);
+    await waitForHydration(page);
+    const host = page.getByTestId('mix-budget-host');
+    await expect(host.getByTestId('follow-error')).toHaveText(
+      'too many redirect or 404 follows',
+      { timeout: 30_000 },
+    );
+    await expect(host.getByTestId('follow-count')).toHaveText('20');
+    expect(mixBFetches).toBe(10);
   });
 
   test('a mixed slot and load follow chain stops at the follow limit', async ({

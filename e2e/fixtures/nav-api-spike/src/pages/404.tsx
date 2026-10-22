@@ -1,3 +1,4 @@
+import { unstable_createCustomError as createCustomError } from 'waku/minimal/server';
 import {
   unstable_redirect as redirect,
   unstable_rerenderRoute as rerenderRoute,
@@ -8,9 +9,15 @@ let count = 0;
 export default function NotFoundPage({ query = '' }: { query?: string }) {
   const params = new URLSearchParams(query);
   if (params.get('mix') === '1') {
-    redirect('/mix-b?mix=1' as '/');
+    throw createCustomError('Redirect', {
+      status: 307,
+      location: '/mix-b?mix=1',
+    });
   }
   const cycle = params.get('mixcycle');
+  if (cycle === 'same') {
+    redirect('/mix-b?mixcycle=same' as '/');
+  }
   if (cycle === 'a') {
     redirect('/mix-b?mixcycle=b' as '/');
   }
