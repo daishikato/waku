@@ -1,17 +1,19 @@
 import { notFound } from 'waku/router/server';
+import { IntentForm } from '../components/intent-form.js';
 
 export default function IntentMissingAction() {
   return (
-    <form
-      action={async () => {
-        'use server';
-        notFound();
-        return 'missing';
-      }}
-    >
+    <>
       <h1>Intent Missing Action</h1>
-      <button type="submit">Missing action</button>
-    </form>
+      <IntentForm
+        label="Missing action"
+        action={async () => {
+          'use server';
+          notFound();
+          return 'missing';
+        }}
+      />
+    </>
   );
 }
 

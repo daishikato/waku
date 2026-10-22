@@ -347,4 +347,29 @@ describe('intent metadata', () => {
       getRouteIntent().finish();
     });
   });
+
+  it('preserves a cached intent when its first requesting client aborts', async () => {
+    const controller = new AbortController();
+    const gate = Promise.withResolvers<void>();
+    const cache = createElementCache(vi.fn());
+    await withinRequest(async () => {
+      const pending = cache.set('slot', async () => {
+        await gate.promise;
+        redirect('/cached');
+        return 'cached element';
+      });
+      controller.abort();
+      gate.resolve();
+      await pending;
+      expect(getRouteIntent().value).toBeUndefined();
+    }, controller.signal);
+    await withinRequest(async () => {
+      expect(await cache.get('slot')).toBe('cached element');
+      expect(getRouteIntent().value).toEqual({
+        status: 307,
+        location: '/cached',
+      });
+      getRouteIntent().finish();
+    });
+  });
 });

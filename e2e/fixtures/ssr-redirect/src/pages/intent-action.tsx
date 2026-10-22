@@ -1,17 +1,19 @@
 import { redirect } from 'waku/router/server';
+import { IntentForm } from '../components/intent-form.js';
 
 export default function IntentAction() {
   return (
-    <form
-      action={async () => {
-        'use server';
-        redirect('/destination');
-        return 'saved';
-      }}
-    >
+    <>
       <h1>Intent Action</h1>
-      <button type="submit">Intent redirect action</button>
-    </form>
+      <IntentForm
+        label="Intent redirect action"
+        action={async () => {
+          'use server';
+          redirect('/destination');
+          return 'saved';
+        }}
+      />
+    </>
   );
 }
 
