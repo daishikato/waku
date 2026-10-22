@@ -12,10 +12,7 @@ import htmlTransform from 'virtual:vite-rsc-waku/html-transform';
 // Exception: SSR must share Minimal's slot context.
 import { INTERNAL_ServerRoot } from '../../minimal/client-runtime.js';
 import { getErrorInfo } from '../utils-isomorphic/custom-errors.js';
-import {
-  batchReadableStream,
-  observeStreamEnd,
-} from '../utils-isomorphic/stream.js';
+import { batchReadableStream } from '../utils-isomorphic/stream.js';
 import {
   createBootstrapScriptContent,
   createHtmlFallback,
@@ -54,29 +51,6 @@ type RenderHtmlStream = (
 type RscElementsPayload = Record<string, unknown>;
 type RscHtmlPayload = ReactNode;
 
-function createElementsPromise(stream: ReadableStream<Uint8Array>) {
-  const completed = Promise.withResolvers<void>();
-  const observed = observeStreamEnd(stream, completed.resolve);
-  return Promise.resolve(
-    createFromReadableStream<RscElementsPayload>(observed),
-  ).then((elements) => {
-    // Flight drops unused weak work; HTML suspensions need an EOF fallback.
-    for (const [id, value] of Object.entries(elements)) {
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        'status' in value &&
-        value.status === 'pending_weak' &&
-        'then' in value &&
-        typeof value.then === 'function'
-      ) {
-        elements[id] = Promise.race([value, completed.promise]);
-      }
-    }
-    return elements;
-  });
-}
-
 // This code runs on `ssr` environment,
 // i.e. it runs on server but without `react-server` condition.
 // These utilities are used by `rsc` environment through
@@ -99,7 +73,7 @@ export const renderHtmlStream: RenderHtmlStream = async (
     // https://github.com/facebook/react/pull/31799#discussion_r1886166075
     // FIXME unlike the client, this does not adopt the payload, so it keeps
     // its reserved keys and unstable_isImmutableElement reads no etags from it
-    elementsPromise ??= createElementsPromise(stream1);
+    elementsPromise ??= createFromReadableStream<RscElementsPayload>(stream1);
     htmlPromise ??= createFromReadableStream<RscHtmlPayload>(rscHtmlStream);
     return (
       <INTERNAL_ServerRoot elementsPromise={elementsPromise}>

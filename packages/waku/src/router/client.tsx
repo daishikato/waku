@@ -293,7 +293,6 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
           navigate: notAvailableInServer('navigate'),
         }}
       >
-        <RouteIntent />
         {rootElement}
       </RouterHostContext>
     </RouterContext>

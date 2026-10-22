@@ -23,29 +23,19 @@ const createRouteIntent = (
 ) => {
   const { promise, resolve } = createWeakPromise();
   let value: RouteIntentData | undefined;
-  let closed = signal?.aborted ?? false;
-  const finish = () => {
-    closed = true;
-    signal?.removeEventListener('abort', finish);
-  };
-  if (!closed) {
-    signal?.addEventListener('abort', finish, { once: true });
-  }
   return {
     promise,
     get value() {
       return value;
     },
     record(intent: RouteIntentData) {
-      if (closed) {
+      if (value || signal?.aborted) {
         return;
       }
       value = intent;
-      finish();
       resolve(JSON.stringify(intent));
       forward?.(intent);
     },
-    finish,
   };
 };
 
@@ -57,45 +47,23 @@ export const getRouteIntent = () => {
   return (store.intent ??= createRouteIntent(store.req.signal));
 };
 
-export const finishRouteIntent = (stream: ReadableStream<Uint8Array>) => {
-  const intent = getRouteIntent();
-  const reader = stream.getReader();
-  return new ReadableStream<Uint8Array>(
-    {
-      async pull(controller) {
-        try {
-          const { done, value } = await reader.read();
-          if (done) {
-            intent.finish();
-            controller.close();
-          } else {
-            controller.enqueue(value);
-          }
-        } catch (error) {
-          intent.finish();
-          controller.error(error);
-        }
-      },
-      cancel(reason) {
-        intent.finish();
-        return reader.cancel(reason);
-      },
-    },
-    { highWaterMark: 0 },
-  );
-};
-
 export const captureRouteIntent = async <T>(fn: () => Promise<T>) => {
   const store = routerStorage.getStore();
   if (!store) {
     return { result: await fn(), intent: undefined };
   }
-  const intent = createRouteIntent(undefined, getRouteIntent().record);
+  const parent = getRouteIntent();
+  let active = true;
+  const intent = createRouteIntent(undefined, (value) => {
+    if (active) {
+      parent.record(value);
+    }
+  });
   try {
     const result = await runWithRouterStore({ ...store, intent }, fn);
     return { result, intent: intent.value };
   } finally {
-    intent.finish();
+    active = false;
   }
 };
 

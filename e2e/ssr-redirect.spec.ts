@@ -14,10 +14,14 @@ test.describe(`ssr-redirect`, () => {
   const hits: string[] = [];
   const serverOutput: string[] = [];
   const notFoundGate = Promise.withResolvers<void>();
+  const redirectGate = Promise.withResolvers<void>();
 
   test.beforeAll(async ({ mode }) => {
     // a second origin that sends no cors headers, which a fetch cannot read
     other = createServer((req, res) => {
+      if (req.url === '/redirect-gate') {
+        return redirectGate.promise.then(() => res.end());
+      }
       if (req.url === '/not-found-gate') {
         void notFoundGate.promise.then(() => res.end());
         return;
@@ -120,18 +124,22 @@ test.describe(`ssr-redirect`, () => {
     await expect(page).toHaveURL(`http://127.0.0.1:${port}/intent-missing`);
   });
 
-  test('late normal-return redirect works without JavaScript', async ({
-    browser,
+  test('late normal-return redirect follows in the browser after the shell', async ({
+    page,
   }) => {
-    const context = await browser.newContext({ javaScriptEnabled: false });
+    const response = await page.goto(`http://127.0.0.1:${port}/intent-late`, {
+      waitUntil: 'commit',
+    });
     try {
-      const page = await context.newPage();
-      const response = await page.goto(`http://127.0.0.1:${port}/intent-late`);
       expect(response?.status()).toBe(200);
-      await expect(page.getByRole('heading')).toHaveText('Destination Page');
+      await expect(page.getByRole('heading')).toHaveText(
+        'Intent redirect shell',
+      );
     } finally {
-      await context.close();
+      redirectGate.resolve();
     }
+    await expect(page.getByRole('heading')).toHaveText('Destination Page');
+    await expect(page).toHaveURL(`http://127.0.0.1:${port}/destination`);
   });
 
   test('late notFound shows the custom page after the shell', async ({

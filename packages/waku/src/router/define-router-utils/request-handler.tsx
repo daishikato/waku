@@ -16,16 +16,11 @@ import {
   encodeRoutePath,
   getSliceSlotId,
 } from '../isomorphic-utils/router-protocol.js';
-import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import { ROUTER_METADATA } from './build-metadata.js';
 import { getRouterPrefetchCode } from './client-code.js';
-import { base64ToBytes, createElementCache } from './element-cache.js';
-import {
-  finishRouteIntent,
-  getNonce,
-  getRouteIntent,
-  setRerender,
-} from './request-store.js';
+import { createElementCache } from './element-cache.js';
+import type { SerializedElement } from './element-cache.js';
+import { getNonce, getRouteIntent, setRerender } from './request-store.js';
 import type { Resolve, Route, createRouteEntries } from './route-entries.js';
 
 type RouteEntries = {
@@ -91,19 +86,8 @@ export const createRequestHandler = ({
   ) => {
     return runHandled(input.req, async () => {
       const intent = getRouteIntent();
-      let renderStarted = false;
-      const renderRsc: RenderRsc = (elements, options) => {
-        renderStarted = true;
-        return renderRscBase(
-          { ...elements, [INTENT_ID]: intent.promise },
-          options,
-        )
-          .then(finishRouteIntent)
-          .catch((error: unknown) => {
-            intent.finish();
-            throw error;
-          });
-      };
+      const renderRsc: RenderRsc = (elements, options) =>
+        renderRscBase({ ...elements, [INTENT_ID]: intent.promise }, options);
       const redirectResponse = () => {
         const requested = intent.value;
         if (!requested || !('location' in requested)) {
@@ -131,27 +115,16 @@ export const createRequestHandler = ({
           ROUTER_METADATA.cachedElements,
         );
         if (cachedElementsMetadata) {
-          const intents = JSON.parse(
-            (await loadBuildMetadata(ROUTER_METADATA.cachedRouteIntents)) ||
-              '{}',
-          ) as Record<string, RouteIntentData>;
-          Object.entries(JSON.parse(cachedElementsMetadata)).forEach(
-            ([cacheId, str]) => {
-              requestElementCache.preload(
-                cacheId,
-                base64ToBytes(str as string),
-                intents[cacheId],
-              );
-            },
-          );
+          const cachedElements = JSON.parse(cachedElementsMetadata) as Record<
+            string,
+            SerializedElement
+          >;
+          for (const [cacheId, entry] of Object.entries(cachedElements)) {
+            requestElementCache.preload(cacheId, entry);
+          }
         }
       })();
-      try {
-        await requestElementCacheInit;
-      } catch (error) {
-        intent.finish();
-        throw error;
-      }
+      await requestElementCacheInit;
       const getPath2moduleIds = async () => {
         if (!cachedPath2moduleIds) {
           cachedPath2moduleIds = JSON.parse(
@@ -467,23 +440,14 @@ export const createRequestHandler = ({
         }
       };
 
-      try {
-        if (input.type === 'rsc') {
-          return await handleRscRequest(input);
-        }
-        if (input.type === 'call') {
-          return await handleCallRequest(input);
-        }
-        if (input.type === 'http') {
-          return await handleHttpRequest(input);
-        }
-      } catch (error) {
-        intent.finish();
-        throw error;
-      } finally {
-        if (!renderStarted) {
-          intent.finish();
-        }
+      if (input.type === 'rsc') {
+        return handleRscRequest(input);
+      }
+      if (input.type === 'call') {
+        return handleCallRequest(input);
+      }
+      if (input.type === 'http') {
+        return handleHttpRequest(input);
       }
     });
   };

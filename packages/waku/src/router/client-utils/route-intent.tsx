@@ -1,5 +1,4 @@
 import {
-  Suspense,
   startTransition,
   use,
   useCallback,
@@ -15,10 +14,7 @@ import {
 } from 'waku/minimal/client';
 import { MAX_FOLLOWS_PER_NAVIGATION } from '../client-core-utils/error-route.js';
 import { getRouteUrl, isSameRscRoute } from '../client-core-utils/route-url.js';
-import {
-  addBase,
-  pathnameToRoutePath,
-} from '../isomorphic-utils/route-path.js';
+import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
 import {
   INTENT_ID,
   getRouteFromElements,
@@ -28,29 +24,7 @@ import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import { RouterContext } from './router-context.js';
 import { getRouterState } from './router-state.js';
 
-const NO_INTENT = Promise.resolve(undefined);
-
 type Elements = Readonly<Record<string | symbol, unknown>>;
-
-const ReadRouteIntent = () => {
-  const elements = use(useElementsPromise());
-  const pending =
-    (elements[INTENT_ID] as Promise<string | undefined> | undefined) ??
-    NO_INTENT;
-  const value = use(pending);
-  const intent =
-    value === undefined ? undefined : (JSON.parse(value) as RouteIntentData);
-  if (intent && 'location' in intent) {
-    const location = intent.location.startsWith('/')
-      ? addBase(intent.location, import.meta.env.WAKU_CONFIG_BASE_PATH)
-      : intent.location;
-    return <meta httpEquiv="refresh" content={`0;url=${location}`} />;
-  }
-  if (intent?.status === 404 && !has404FromElements(elements)) {
-    return <h1>Not Found</h1>;
-  }
-  return null;
-};
 
 export const RouteIntent = () => {
   const elements = use(useElementsPromise());
@@ -241,9 +215,5 @@ export const RouteIntent = () => {
   if (missing && missing.scope === currentScope) {
     return <h1>Not Found</h1>;
   }
-  return (
-    <Suspense fallback={null}>
-      {typeof window === 'undefined' ? <ReadRouteIntent /> : null}
-    </Suspense>
-  );
+  return null;
 };

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  base64ToBytes,
-  createElementCache,
-} from '../src/router/define-router-utils/element-cache.js';
+import { createElementCache } from '../src/router/define-router-utils/element-cache.js';
 import {
   getRouteIntent,
   runWithRouterStore,
@@ -99,7 +96,7 @@ describe('intent metadata', () => {
     expect(renderRsc).toHaveBeenCalledOnce();
   });
 
-  it('finishes an API request that never starts an RSC render', async () => {
+  it('does not await an unused intent for an API response', async () => {
     let intent: ReturnType<typeof getRouteIntent> | undefined;
     const router = unstable_defineRouter({
       resolve: async () => async () => {
@@ -124,7 +121,7 @@ describe('intent metadata', () => {
     await expectPending(intent!.promise);
   });
 
-  it('finishes the intent if loading request metadata fails', async () => {
+  it('propagates metadata errors without awaiting an unused intent', async () => {
     let intent: ReturnType<typeof getRouteIntent> | undefined;
     const failure = new Error('metadata unavailable');
     const router = unstable_defineRouter({
@@ -250,21 +247,10 @@ describe('intent metadata', () => {
         status: 307,
         location: '/login',
       });
-      intent.finish();
     });
   });
 
-  it('finishes a normal request and ignores intents after completion', async () => {
-    await withinRequest(async () => {
-      const intent = getRouteIntent();
-      intent.finish();
-      redirect('/late');
-      await expectPending(intent.promise);
-      expect(intent.value).toBeUndefined();
-    });
-  });
-
-  it('closes an aborted request before a later continuation can redirect', async () => {
+  it('ignores intents from an aborted request', async () => {
     const controller = new AbortController();
     await withinRequest(async () => {
       const intent = getRouteIntent();
@@ -282,13 +268,11 @@ describe('intent metadata', () => {
       await gate.promise;
       redirect('/first');
       notFound();
-      intent.finish();
       return intent.promise;
     });
     const second = withinRequest(async () => {
       const intent = getRouteIntent();
       notFound();
-      intent.finish();
       return intent.promise;
     });
     gate.resolve();
@@ -311,16 +295,16 @@ describe('intent metadata', () => {
         status: 307,
         location: '/cached',
       });
-      getRouteIntent().finish();
     });
-    const [id, serialized, recorded] = saved.mock.calls[0]!;
-    expect(recorded).toEqual({ status: 307, location: '/cached' });
+    const [id, entry] = saved.mock.calls[0]!;
+    expect(entry.intent).toEqual({ status: 307, location: '/cached' });
     const restored = createElementCache();
-    restored.preload(id, base64ToBytes(serialized), recorded);
+    restored.preload(id, entry);
     await withinRequest(async () => {
       expect(await restored.get(id)).toBe('cached element');
-      expect(JSON.parse((await getRouteIntent().promise)!)).toEqual(recorded);
-      getRouteIntent().finish();
+      expect(JSON.parse((await getRouteIntent().promise)!)).toEqual(
+        entry.intent,
+      );
     });
   });
 
@@ -344,7 +328,25 @@ describe('intent metadata', () => {
       gate.resolve();
       await first;
       await cache.get('first');
-      getRouteIntent().finish();
+    });
+  });
+
+  it('does not forward callbacks from a completed cache capture', async () => {
+    const gate = Promise.withResolvers<void>();
+    const saved = vi.fn();
+    const cache = createElementCache(saved);
+    await withinRequest(async () => {
+      let detached!: Promise<void>;
+      await cache.set('slot', () => {
+        detached = gate.promise.then(() => redirect('/detached'));
+        return 'cached element';
+      });
+      gate.resolve();
+      await detached;
+      expect(getRouteIntent().value).toBeUndefined();
+      expect(saved.mock.calls[0]![1].intent).toBeUndefined();
+      expect(await cache.get('slot')).toBe('cached element');
+      expect(getRouteIntent().value).toBeUndefined();
     });
   });
 
@@ -369,7 +371,6 @@ describe('intent metadata', () => {
         status: 307,
         location: '/cached',
       });
-      getRouteIntent().finish();
     });
   });
 });

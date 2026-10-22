@@ -3,7 +3,10 @@ import type {
   Unstable_HandleBuild as HandleBuild,
 } from 'waku/minimal/server';
 import { INTERNAL_ServerRouter } from '../client.js';
-import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
+import {
+  addBase,
+  pathnameToRoutePath,
+} from '../isomorphic-utils/route-path.js';
 import {
   INTENT_ID,
   encodeRoutePath,
@@ -11,7 +14,6 @@ import {
   getRouteSlotId,
   isSliceSlotId,
 } from '../isomorphic-utils/router-protocol.js';
-import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import { ROUTER_METADATA } from './build-metadata.js';
 import { getRouterPrefetchCode } from './client-code.js';
 import {
@@ -19,7 +21,8 @@ import {
   createElementCache,
   getElementCacheId,
 } from './element-cache.js';
-import { finishRouteIntent, getRouteIntent } from './request-store.js';
+import type { SerializedElement } from './element-cache.js';
+import { getRouteIntent } from './request-store.js';
 import { validateRouteElementIds } from './route-entries.js';
 import type { Resolve, Route, createRouteEntries } from './route-entries.js';
 
@@ -73,13 +76,9 @@ export const createBuildHandler =
     runHandled: <T>(req: Request, fn: () => Promise<T>) => Promise<T>;
   }): HandleBuild =>
   async (utils) => {
-    const cachedElements: Record<string, string> = {};
-    const cachedRouteIntents: Record<string, RouteIntentData> = {};
-    const cache = createElementCache((id, bytes, intent) => {
-      cachedElements[id] = bytes;
-      if (intent) {
-        cachedRouteIntents[id] = intent;
-      }
+    const cachedElements: Record<string, SerializedElement> = {};
+    const cache = createElementCache((id, entry) => {
+      cachedElements[id] = entry;
     });
     const path2moduleIds: Record<string, string[]> = {};
     const htmlTasks: (() => Promise<void>)[] = [];
@@ -136,7 +135,6 @@ export const createBuildHandler =
                 }
               }),
             );
-            getRouteIntent().finish();
             return;
           }
           const rscPath = encodeRoutePath(routePath);
@@ -167,18 +165,16 @@ export const createBuildHandler =
             return;
           }
           const moduleIds = new Set<string>();
-          const stream = finishRouteIntent(
-            await utils.renderRsc(
-              {
-                ...entries.elements,
-                [INTENT_ID]: getRouteIntent().promise,
-              },
-              {
-                etags: entries.etags,
-                unstable_clientModuleCallback: (ids) =>
-                  ids.forEach((id) => moduleIds.add(id)),
-              },
-            ),
+          const stream = await utils.renderRsc(
+            {
+              ...entries.elements,
+              [INTENT_ID]: getRouteIntent().promise,
+            },
+            {
+              etags: entries.etags,
+              unstable_clientModuleCallback: (ids) =>
+                ids.forEach((id) => moduleIds.add(id)),
+            },
           );
           const htmlPath =
             routePath === '/404' ? '404.html' : routePath + '/index.html';
@@ -188,13 +184,22 @@ export const createBuildHandler =
           } else {
             const [payload, htmlPayload] = stream.tee();
             await utils.generateFile(utils.rscPath2pathname(rscPath), payload);
+            const intent = getRouteIntent().value;
             htmlTasks.push(() =>
               runHandled(req, async () => {
                 const response = await utils.renderHtml(
                   htmlPayload,
-                  <INTERNAL_ServerRouter
-                    route={{ path: routePath, query: '', hash: '' }}
-                  />,
+                  <>
+                    {intent && 'location' in intent && (
+                      <meta
+                        httpEquiv="refresh"
+                        content={`0;url=${addBase(intent.location, import.meta.env.WAKU_CONFIG_BASE_PATH)}`}
+                      />
+                    )}
+                    <INTERNAL_ServerRouter
+                      route={{ path: routePath, query: '', hash: '' }}
+                    />
+                  </>,
                   {
                     rscPath,
                     unstable_extraScriptContent:
@@ -240,16 +245,14 @@ export const createBuildHandler =
           if (entries.etags[id] !== 1) {
             throw new Error('Build element must be immutable: ' + id);
           }
-          const stream = finishRouteIntent(
-            await utils.renderRsc(
-              {
-                ...entries.elements,
-                [INTENT_ID]: getRouteIntent().promise,
-              },
-              {
-                etags: entries.etags,
-              },
-            ),
+          const stream = await utils.renderRsc(
+            {
+              ...entries.elements,
+              [INTENT_ID]: getRouteIntent().promise,
+            },
+            {
+              etags: entries.etags,
+            },
           );
           await utils.generateFile(pathname, stream);
         });
@@ -257,10 +260,6 @@ export const createBuildHandler =
     }
     htmlTasks.forEach(runTask);
     await waitForTasks();
-    await utils.saveBuildMetadata(
-      ROUTER_METADATA.cachedRouteIntents,
-      JSON.stringify(cachedRouteIntents),
-    );
     await utils.saveBuildMetadata(
       ROUTER_METADATA.cachedElements,
       JSON.stringify(cachedElements),
