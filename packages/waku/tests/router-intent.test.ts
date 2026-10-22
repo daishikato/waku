@@ -416,6 +416,10 @@ describe('intent metadata', () => {
       },
     );
     expect((response as Response).status).toBe(404);
+    expect((response as Response).headers.get('content-type')).toContain(
+      'text/html',
+    );
+    expect(await (response as Response).text()).toContain('<h1>Not Found</h1>');
     expect(renderHtmlFallback).not.toHaveBeenCalled();
   });
 
