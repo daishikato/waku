@@ -1,8 +1,8 @@
 import {
   startTransition,
   use,
-  useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -12,9 +12,11 @@ import {
   useElementsPromise_UNSTABLE as useElementsPromise,
   useRegisterRscEnhancer_UNSTABLE as useRegisterRscEnhancer,
 } from 'waku/minimal/client';
-import { MAX_FOLLOWS_PER_NAVIGATION } from '../client-core-utils/error-route.js';
-import { getRouteUrl, isSameRscRoute } from '../client-core-utils/route-url.js';
-import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
+import {
+  MAX_FOLLOWS_PER_NAVIGATION,
+  decideRouteIntent,
+} from '../client-core-utils/route-intent.js';
+import { isSameRscRoute, parseRoute } from '../client-core-utils/route-url.js';
 import {
   INTENT_ID,
   getRouteFromElements,
@@ -52,12 +54,13 @@ export const RouteIntent = () => {
       mounted.current = false;
     };
   }, []);
-  const follow = useCallback(
+  const follow = useEffectEvent(
     (
-      intent: RouteIntentData,
+      value: string,
       source: Elements,
       pending: PromiseLike<string | undefined>,
     ) => {
+      const intent = JSON.parse(value) as RouteIntentData;
       const state = getRouterState(source);
       if (
         !changeRoute ||
@@ -78,10 +81,7 @@ export const RouteIntent = () => {
       if (getElements && getElements()[INTENT_ID] !== source[INTENT_ID]) {
         return;
       }
-      if (
-        intent.status === 404 &&
-        getRouteFromElements(source)?.path === '/404'
-      ) {
+      if (intent.status === 404 && sourceRoute?.path === '/404') {
         return;
       }
       followed.current.set(pending, state);
@@ -89,43 +89,48 @@ export const RouteIntent = () => {
         window.location.replace(intent.location);
         return;
       }
-      if (intent.status === 404 && !has404FromElements(source)) {
-        setMissing({ scope: getRouterState(source) });
-        return;
-      }
-      const follows = (state?.follows ?? 0) + 1;
-      if (follows > MAX_FOLLOWS_PER_NAVIGATION) {
-        setFailure({ error: new Error('too many redirect or 404 follows') });
-        return;
-      }
       const requestedUrl = new URL(
         state?.url ?? window.location.href,
         window.location.href,
       );
-      const location =
-        'location' in intent
-          ? new URL(intent.location, requestedUrl)
-          : requestedUrl;
-      const target = {
-        path:
-          intent.status === 404
-            ? '/404'
-            : pathnameToRoutePath(location.pathname),
-        query: location.searchParams.toString(),
-        hash: intent.status === 404 ? '' : location.hash,
-      };
-      const url = intent.status === 404 ? requestedUrl : getRouteUrl(target);
+      const requested = state?.requested;
+      const decision = decideRouteIntent(
+        intent,
+        {
+          route: requested
+            ? { path: requested[0], query: requested[1] }
+            : (sourceRoute ?? parseRoute(requestedUrl)),
+          url: requestedUrl,
+          follows: state?.follows ?? 0,
+        },
+        {
+          has404: has404FromElements(source),
+          maxFollows: MAX_FOLLOWS_PER_NAVIGATION,
+        },
+      );
+      if (decision.type === 'none') {
+        setMissing({ scope: state });
+        return;
+      }
+      if (decision.type === 'stop') {
+        setFailure({ error: decision.error });
+        return;
+      }
+      if (decision.type === 'leave') {
+        window.location.replace(decision.url.href);
+        return;
+      }
+      const { target, url } = decision;
       startTransition(() => {
         changeRoute(target, {
           shouldScroll: true,
           history: 'replace',
           refetch: true,
           url,
-          follows,
+          follows: (state?.follows ?? 0) + 1,
         }).catch((error: unknown) => setFailure({ error }));
       });
     },
-    [changeRoute, getElements, getPendingRoute],
   );
 
   useEffect(() => {
@@ -138,7 +143,7 @@ export const RouteIntent = () => {
     Promise.resolve(pending).then(
       (value) => {
         if (active && value !== undefined) {
-          follow(JSON.parse(value) as RouteIntentData, elements, pending);
+          follow(value, elements, pending);
         }
       },
       (error: unknown) => {
@@ -150,7 +155,7 @@ export const RouteIntent = () => {
     return () => {
       active = false;
     };
-  }, [elements, follow]);
+  }, [elements]);
 
   useLayoutEffect(() => {
     if (!getElements) {
@@ -161,7 +166,7 @@ export const RouteIntent = () => {
         const scope = getRouterState(getElements());
         const result = await next(path, params, options);
         const pending = result.elements[INTENT_ID] as
-          Promise<string | undefined> | undefined;
+          PromiseLike<string | undefined> | undefined;
         if (
           !pending ||
           (options.type !== 'call' && getRouteFromElements(result.elements))
@@ -178,11 +183,7 @@ export const RouteIntent = () => {
               return;
             }
             if (value !== undefined) {
-              follow(
-                JSON.parse(value) as RouteIntentData,
-                getElements(),
-                pending,
-              );
+              follow(value, getElements(), pending);
             }
           },
           (error: unknown) => {
@@ -207,7 +208,7 @@ export const RouteIntent = () => {
     return () => {
       unregister();
     };
-  }, [follow, getElements, registerRscEnhancer]);
+  }, [getElements, registerRscEnhancer]);
 
   if (failure) {
     throw failure.error;

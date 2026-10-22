@@ -1,118 +1,125 @@
 /** @vitest-environment happy-dom */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { createCustomError } from '../src/lib/utils-isomorphic/custom-errors.js';
+import {
+  createCustomError,
+  getErrorInfo,
+} from '../src/lib/utils-isomorphic/custom-errors.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
+  decideRouteIntent,
   isFollowable,
-  resolveErrorRoute,
-} from '../src/router/client-core-utils/error-route.js';
+} from '../src/router/client-core-utils/route-intent.js';
+import { parseRoute } from '../src/router/client-core-utils/route-url.js';
 
 beforeEach(() => {
   vi.stubEnv('WAKU_CONFIG_BASE_PATH', '/');
 });
 
 const requested = (href: string) => new URL(href, window.location.href);
+const options = { has404: false, maxFollows: MAX_FOLLOWS_PER_NAVIGATION };
+const at = (path: string, query = '', follows = 0) => {
+  const url = requested(path + (query && `?${query}`));
+  return { route: parseRoute(url), url, follows };
+};
 
-describe('resolveErrorRoute', () => {
+describe('decideRouteIntent', () => {
   test('a document location leaves, whatever its origin', () => {
-    const sameOrigin = createCustomError('document navigation', {
+    const sameOrigin = {
       location: '/api/logout',
       unstable_leave: true,
-    });
-    const other = createCustomError('document navigation', {
+    };
+    const other = {
       location: 'https://other.example/next',
       unstable_leave: true,
-    });
+    };
 
     // the server already decided no route answers it
-    expect(resolveErrorRoute(sameOrigin, requested('/from'), false)).toEqual({
+    expect(decideRouteIntent(sameOrigin, at('/from'), options)).toEqual({
       type: 'leave',
       url: expect.any(URL),
     });
     expect(
-      resolveErrorRoute(other, requested('/from'), false).type === 'leave',
+      decideRouteIntent(other, at('/from'), options).type === 'leave',
     ).toBe(true);
   });
 
   test('an app path redirect keeps the route and rebuilds its url', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: '/next?a=1#frag',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute).toEqual({
-      type: 'route',
+    expect(decision).toEqual({
+      type: 'follow',
       target: { path: '/next', query: 'a=1', hash: '#frag' },
       url: expect.any(URL),
     });
-    expect(errorRoute.type === 'route' && errorRoute.url.pathname).toBe(
-      '/next',
-    );
+    expect(decision.type === 'follow' && decision.url.pathname).toBe('/next');
   });
 
   test('a base path is added back to an app path redirect', () => {
     vi.stubEnv('WAKU_CONFIG_BASE_PATH', '/docs/');
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: '/next',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/docs/from'), false);
+    const decision = decideRouteIntent(intent, at('/docs/from'), options);
 
-    expect(errorRoute.type === 'route' && errorRoute.target.path).toBe('/next');
-    expect(errorRoute.type === 'route' && errorRoute.url.pathname).toBe(
+    expect(decision.type === 'follow' && decision.target.path).toBe('/next');
+    expect(decision.type === 'follow' && decision.url.pathname).toBe(
       '/docs/next',
     );
   });
 
   test('a same origin url is followed as it is', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: `${window.location.origin}/next`,
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute.type === 'route' && errorRoute.target.path).toBe('/next');
+    expect(decision.type === 'follow' && decision.target.path).toBe('/next');
   });
 
   test('another origin leaves the app', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: 'https://example.com/next',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute).toEqual({ type: 'leave', url: expect.any(URL) });
-    expect(errorRoute.type === 'leave' && errorRoute.url.href).toBe(
+    expect(decision).toEqual({ type: 'leave', url: expect.any(URL) });
+    expect(decision.type === 'leave' && decision.url.href).toBe(
       'https://example.com/next',
     );
   });
 
   test('a protocol-relative location belongs to another origin', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: '//example.com/next',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute.type).toBe('leave');
+    expect(decision.type).toBe('leave');
   });
 
   test('credentials never reach the address bar', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: 'https://user:pw@example.com/next',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute.type === 'leave' && errorRoute.url.href).toBe(
+    expect(decision.type === 'leave' && decision.url.href).toBe(
       'https://example.com/next',
     );
   });
@@ -121,16 +128,16 @@ describe('resolveErrorRoute', () => {
     const secure = 'https://app.example';
     (window as any).happyDOM.setURL(secure + '/from');
     try {
-      const error = createCustomError('redirect', {
+      const intent = {
         // what an app builds from a request url behind an https proxy
         status: 307,
         location: 'http://app.example/next',
-      });
+      };
 
-      const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+      const decision = decideRouteIntent(intent, at('/from'), options);
 
-      expect(errorRoute.type).toBe('route');
-      expect(errorRoute.type === 'route' && errorRoute.url.protocol).toBe(
+      expect(decision.type).toBe('follow');
+      expect(decision.type === 'follow' && decision.url.protocol).toBe(
         'https:',
       );
     } finally {
@@ -139,86 +146,94 @@ describe('resolveErrorRoute', () => {
   });
 
   test('a location the browser should not navigate to cannot be followed', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: 'javascript:alert(1)',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute).toEqual({
-      type: 'unfollowable',
-      location: 'javascript:alert(1)',
+    expect(decision).toEqual({
+      type: 'stop',
+      error: expect.objectContaining({
+        message: 'cannot follow a redirect to javascript:alert(1)',
+      }),
     });
   });
 
   test('an unfollowable location does not carry credentials into the message', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: 'ftp://user:pw@host/x',
-    });
+    };
 
-    expect(resolveErrorRoute(error, requested('/from'), false)).toEqual({
-      type: 'unfollowable',
-      location: 'ftp://host/x',
+    expect(decideRouteIntent(intent, at('/from'), options)).toEqual({
+      type: 'stop',
+      error: expect.objectContaining({
+        message: 'cannot follow a redirect to ftp://host/x',
+      }),
     });
   });
 
   test('a location that is not a url cannot be followed either', () => {
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: 'https://[',
-    });
+    };
 
-    const errorRoute = resolveErrorRoute(error, requested('/from'), false);
+    const decision = decideRouteIntent(intent, at('/from'), options);
 
-    expect(errorRoute).toEqual({
-      type: 'unfollowable',
-      location: 'https://[',
+    expect(decision).toEqual({
+      type: 'stop',
+      error: expect.objectContaining({
+        message: 'cannot follow a redirect to https://[',
+      }),
     });
   });
 
   test('a 404 goes to the 404 route with the requested query and url', () => {
-    const error = createCustomError('nf', { status: 404 });
+    const intent = { status: 404 };
 
-    const errorRoute = resolveErrorRoute(
-      error,
-      requested('/missing?foo=bar'),
-      true,
-    );
+    const decision = decideRouteIntent(intent, at('/missing?foo=bar'), {
+      ...options,
+      has404: true,
+    });
 
-    expect(errorRoute.type === 'route' && errorRoute.target).toEqual({
+    expect(decision.type === 'follow' && decision.target).toEqual({
       path: '/404',
       query: 'foo=bar',
       hash: '',
     });
-    expect(errorRoute.type === 'route' && errorRoute.url.pathname).toBe(
+    expect(decision.type === 'follow' && decision.url.pathname).toBe(
       '/missing',
     );
   });
 
   test('a 404 without a 404 route is not followed', () => {
-    const error = createCustomError('nf', { status: 404 });
+    const intent = { status: 404 };
 
-    expect(resolveErrorRoute(error, requested('/missing'), false)).toEqual({
+    expect(decideRouteIntent(intent, at('/missing'), options)).toEqual({
       type: 'none',
     });
   });
 
   test('a plain error is not followed', () => {
     expect(
-      resolveErrorRoute(new Error('boom'), requested('/from'), true),
+      decideRouteIntent(getErrorInfo(new Error('boom')), at('/from'), {
+        ...options,
+        has404: true,
+      }),
     ).toEqual({
       type: 'none',
     });
   });
   test('a same origin url outside the base path leaves', () => {
     vi.stubEnv('WAKU_CONFIG_BASE_PATH', '/docs/');
-    const error = createCustomError('redirect', {
+    const intent = {
       status: 307,
       location: `${window.location.origin}/login`,
-    });
-    expect(resolveErrorRoute(error, requested('/docs/from'), false).type).toBe(
+    };
+    expect(decideRouteIntent(intent, at('/docs/from'), options).type).toBe(
       'leave',
     );
   });
@@ -235,12 +250,6 @@ describe('isFollowable', () => {
 });
 
 describe('decideFollow', () => {
-  const options = { has404: false, maxFollows: MAX_FOLLOWS_PER_NAVIGATION };
-  const at = (path: string, query = '', follows = 0) => ({
-    route: { path, query },
-    url: requested(path + (query && `?${query}`)),
-    follows,
-  });
   const redirectTo = (location: string) =>
     createCustomError('redirect', { status: 307, location });
 

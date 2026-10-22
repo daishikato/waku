@@ -3,10 +3,7 @@ import type {
   Unstable_HandleBuild as HandleBuild,
 } from 'waku/minimal/server';
 import { INTERNAL_ServerRouter } from '../client.js';
-import {
-  addBase,
-  pathnameToRoutePath,
-} from '../isomorphic-utils/route-path.js';
+import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
 import {
   INTENT_ID,
   encodeRoutePath,
@@ -184,22 +181,13 @@ export const createBuildHandler =
           } else {
             const [payload, htmlPayload] = stream.tee();
             await utils.generateFile(utils.rscPath2pathname(rscPath), payload);
-            const intent = getRouteIntent().value;
             htmlTasks.push(() =>
               runHandled(req, async () => {
                 const response = await utils.renderHtml(
                   htmlPayload,
-                  <>
-                    {intent && 'location' in intent && (
-                      <meta
-                        httpEquiv="refresh"
-                        content={`0;url=${addBase(intent.location, import.meta.env.WAKU_CONFIG_BASE_PATH)}`}
-                      />
-                    )}
-                    <INTERNAL_ServerRouter
-                      route={{ path: routePath, query: '', hash: '' }}
-                    />
-                  </>,
+                  <INTERNAL_ServerRouter
+                    route={{ path: routePath, query: '', hash: '' }}
+                  />,
                   {
                     rscPath,
                     unstable_extraScriptContent:

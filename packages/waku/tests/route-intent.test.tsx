@@ -145,6 +145,34 @@ test('a navigation commits while its intent stays pending', async () => {
   expect(controls.elements[INTENT_ID]).toBe(pending.promise);
 });
 
+test('a self redirect stops before another request is sent', async () => {
+  const intent = deferIntent();
+  mocks.queue.push(payload('/one', intent.promise));
+  await mount();
+  const requests = vi.mocked(fetch).mock.calls.length;
+  await expect(
+    act(async () => {
+      intent.resolve({ status: 307, location: '/one' });
+      await flush();
+    }),
+  ).rejects.toThrow('detected a navigation loop');
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});
+
+test('notFound without a custom page shows the fallback at the requested URL', async () => {
+  const intent = deferIntent();
+  mocks.queue.push(payload('/one', intent.promise));
+  const view = await mount();
+  const requests = vi.mocked(fetch).mock.calls.length;
+  await act(async () => {
+    intent.resolve({ status: 404 });
+    await flush();
+  });
+  expect(view.textContent).toContain('Not Found');
+  expect(window.location.pathname).toBe('/one');
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});
+
 test.each(['slice', 'action'] as const)(
   'a normal %s response preserves the active page intent',
   async (kind) => {
