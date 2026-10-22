@@ -32,6 +32,12 @@ type RouteEntries = {
 
 type HandlerInput = Parameters<HandleRequest>[0];
 
+const createNotFoundResponse = () =>
+  new Response(
+    '<!doctype html><html><head><title>Not Found</title></head><body><h1>Not Found</h1></body></html>',
+    { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
+  );
+
 const parseInternalRoute = (location: string, base: string) => {
   if (!location.startsWith('/') || location.includes('#')) {
     return undefined;
@@ -112,9 +118,9 @@ export const createRequestHandler = ({
       if (input.type === 'http') {
         return (
           redirectResponse() ??
-          new Response(null, {
-            status: intent.value?.status === 404 ? 404 : 200,
-          })
+          (intent.value?.status === 404
+            ? createNotFoundResponse()
+            : new Response(null))
         );
       }
       if (input.type === 'rsc' && decodeSliceId(input.rscPath) === null) {
@@ -455,14 +461,14 @@ export const createRequestHandler = ({
             await response.body?.cancel(renderCancellation);
             return (await routeEntries.has404())
               ? renderPage('/404', query, 404)
-              : new Response('Not Found', { status: 404 });
+              : createNotFoundResponse();
           }
           return response;
         };
         if (intent.value?.status === 404) {
           return (await routeEntries.has404())
             ? renderPage('/404', query, 404)
-            : new Response('Not Found', { status: 404 });
+            : createNotFoundResponse();
         }
         if (resolved?.noSsr) {
           const nonce = getNonce();
