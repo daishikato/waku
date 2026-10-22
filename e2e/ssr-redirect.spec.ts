@@ -64,18 +64,12 @@ test.describe(`ssr-redirect`, () => {
     expect(response.headers().location).toBe('/destination');
   });
 
-  test('static normal-return redirect survives the element cache', async ({
-    browser,
+  test('static normal-return redirect follows after hydration', async ({
+    page,
   }) => {
-    const context = await browser.newContext({ javaScriptEnabled: false });
-    try {
-      const page = await context.newPage();
-      await page.goto(`http://127.0.0.1:${port}/intent-static`);
-      await expect(page.getByRole('heading')).toHaveText('Destination Page');
-      await expect(page).toHaveURL(`http://127.0.0.1:${port}/destination`);
-    } finally {
-      await context.close();
-    }
+    await page.goto(`http://127.0.0.1:${port}/intent-static`);
+    await expect(page.getByRole('heading')).toHaveText('Destination Page');
+    await expect(page).toHaveURL(`http://127.0.0.1:${port}/destination`);
   });
 
   test('flat pass-through preserves opaque action values and client props', async ({

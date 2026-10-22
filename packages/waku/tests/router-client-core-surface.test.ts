@@ -9,7 +9,7 @@ import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
   isFollowable,
-} from '../src/router/client-core-utils/error-route.js';
+} from '../src/router/client-core-utils/route-intent.js';
 import * as clientCore from '../src/router/client-core.js';
 import * as client from '../src/router/client.js';
 
@@ -110,7 +110,7 @@ describe('waku/router/client-core surface', () => {
     }
   });
 
-  test('follow primitives are the error-route module', () => {
+  test('follow primitives share the route intent implementation', () => {
     expect(clientCore.unstable_decideFollow).toBe(decideFollow);
     expect(clientCore.unstable_isFollowable).toBe(isFollowable);
     expect(clientCore.unstable_MAX_FOLLOWS_PER_NAVIGATION).toBe(

@@ -14,10 +14,10 @@ import {
 } from 'waku/minimal/client';
 import { useActionRouting } from '../client-core-utils/action-routing.js';
 import { useRouterCache } from '../client-core-utils/caches.js';
-import { isFollowable } from '../client-core-utils/error-route.js';
 import { useHmrRefetch } from '../client-core-utils/hmr.js';
 import { useInitialRoute } from '../client-core-utils/initial-route.js';
 import { buildMergePatch } from '../client-core-utils/merge-patch.js';
+import { isFollowable } from '../client-core-utils/route-intent.js';
 import {
   getRouteUrl,
   isSameRoute,
