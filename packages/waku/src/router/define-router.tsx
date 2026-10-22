@@ -10,6 +10,7 @@ import {
   getHeaders,
   getRequest,
   getRerender,
+  getRouteIntent,
   getRscParams,
   getRscPath,
   runWithRouterStore,
@@ -73,23 +74,25 @@ export function unstable_rerenderRoute(pathname?: string, query?: string) {
   );
 }
 
+/**
+ * Requests the not-found view without terminating execution. Return from the
+ * current component or server function after calling it. Before the document
+ * shell this can produce HTTP 404; after the shell the client shows the view.
+ * The first navigation recorded for a request wins. A server function keeps its
+ * normal return value; a form submitted without JavaScript responds with 404.
+ */
+export function notFound(): void {
+  getRouteIntent().record({ status: 404 });
+}
+
+/** @deprecated Use `notFound()` and return explicitly. This alias throws. */
 export function unstable_notFound(): never {
   throw createCustomError('Not Found', { status: 404 });
 }
 
-/**
- * Redirect within the app, or away from it with an absolute http or https url.
- * Check destinations built from user input against your own allowlist.
- *
- * An absolute url navigates the document even when it names this origin, so
- * pass a path to stay within the app. A form submission without JavaScript is
- * followed by the browser, which resends the body on 307 and 308, so those
- * answer 303 instead.
- */
-export function unstable_redirect(
+const getRedirectLocation = (
   to: NavigationHref | `http://${string}` | `https://${string}` | URL,
-  status: 303 | 307 | 308 = 307,
-): never {
+) => {
   let location = to instanceof URL ? to.href : to;
   const leavesTheApp =
     location.startsWith('http://') || location.startsWith('https://');
@@ -101,8 +104,6 @@ export function unstable_redirect(
     throw new Error(`Invalid redirect location: ${JSON.stringify(location)}`);
   }
   if (leavesTheApp) {
-    // a redirect thrown mid stream reaches the client as this digest, before
-    // anything resolves it
     const url = new URL(location);
     url.username = '';
     url.password = '';
@@ -119,7 +120,34 @@ export function unstable_redirect(
       throw new Error(`Invalid redirect location: ${JSON.stringify(location)}`);
     }
   }
-  throw createCustomError('Redirect', { status, location });
+  return location;
+};
+
+/**
+ * Requests navigation without terminating execution. Return explicitly after
+ * calling it. Accepts an app-relative path or an absolute HTTP(S) URL; validate
+ * destinations derived from user input against your own allowlist. Before the
+ * document shell this produces an HTTP redirect, with 303 for a form POST;
+ * after the shell the client follows the streamed route intent.
+ * An absolute URL navigates the document even when it names this origin.
+ * The first navigation recorded for a request wins.
+ */
+export function redirect(
+  to: NavigationHref | `http://${string}` | `https://${string}` | URL,
+  status: 303 | 307 | 308 = 307,
+): void {
+  getRouteIntent().record({ status, location: getRedirectLocation(to) });
+}
+
+/** @deprecated Use `redirect()` and return explicitly. This alias throws. */
+export function unstable_redirect(
+  to: NavigationHref | `http://${string}` | `https://${string}` | URL,
+  status: 303 | 307 | 308 = 307,
+): never {
+  throw createCustomError('Redirect', {
+    status,
+    location: getRedirectLocation(to),
+  });
 }
 
 type RouterOptions = {

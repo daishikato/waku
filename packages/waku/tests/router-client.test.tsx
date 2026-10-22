@@ -122,7 +122,7 @@ const testHoisted = vi.hoisted(() => ({
   fetchRsc: null as unknown as ReturnType<typeof vi.fn>,
   newFetchRsc: null as unknown as () => void,
   // the RSC enhancers the mocked Roots registered, newest Root last
-  enhancerCount: null as unknown as () => number,
+  enhancerCount: null as unknown as (order?: number) => number,
   clearEnhancers: null as unknown as () => void,
   emitActionElements: null as unknown as (
     elements: Record<string, unknown>,
@@ -497,7 +497,10 @@ vi.mock('../src/minimal/client-runtime.js', async () => {
       }
     };
   };
-  testHoisted.enhancerCount = () => enhancers.length;
+  testHoisted.enhancerCount = (order) =>
+    order === undefined
+      ? enhancers.length
+      : enhancers.filter((entry) => entry[1] === order).length;
   testHoisted.clearEnhancers = () => {
     enhancers.length = 0;
   };
@@ -2045,7 +2048,7 @@ describe('Router integration', () => {
     view.unmount();
   });
 
-  test('registers its action enhancer once, and removes it on unmount (StrictMode)', async () => {
+  test('registers its action and route intent enhancers once, and removes them on unmount (StrictMode)', async () => {
     const elements = {
       [unstable_getRouteSlotId('/start')]: <div>start</div>,
       [ROUTE_ID]: ['/start', ''],
@@ -2057,7 +2060,8 @@ describe('Router integration', () => {
     );
 
     // Registered exactly once despite StrictMode's mount/unmount/mount cycle.
-    expect(testHoisted.enhancerCount()).toBe(1);
+    expect(testHoisted.enhancerCount(100)).toBe(1);
+    expect(testHoisted.enhancerCount(110)).toBe(1);
 
     view.unmount();
 
@@ -2080,7 +2084,7 @@ describe('Router integration', () => {
         elements,
       );
 
-      expect(testHoisted.enhancerCount()).toBe(1);
+      expect(testHoisted.enhancerCount(100)).toBe(1);
       await act(async () => {
         await testHoisted.emitActionElements({
           [ROUTE_ID]: ['/next', ''],
@@ -2109,7 +2113,7 @@ describe('Router integration', () => {
       },
     );
     try {
-      expect(testHoisted.enhancerCount()).toBe(1);
+      expect(testHoisted.enhancerCount(100)).toBe(1);
       testHoisted.mergeTypes.length = 0;
       await act(async () => {
         await testHoisted.emitActionElements({

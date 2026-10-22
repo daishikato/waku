@@ -7,6 +7,7 @@ import {
 import { createConfiguredRouter } from '../src/router/create-pages-utils/router.js';
 import {
   ACTION_LOCATION_HEADER,
+  INTENT_ID,
   IS_ORIGIN_ID,
   ROUTE_ID,
   encodeRoutePath,
@@ -19,6 +20,10 @@ import {
   unstable_rerenderRoute,
   unstable_setNonce,
 } from '../src/router/server.js';
+
+const intentPromise = expect.objectContaining({
+  then: expect.any(Function),
+});
 
 vi.mock('../src/server.js', () => ({
   deserializeRsc: vi.fn().mockResolvedValue(null),
@@ -34,7 +39,7 @@ const makeStream = () =>
   });
 
 const makeUtils = (loadBuildMetadata = vi.fn()) => ({
-  renderRsc: vi.fn().mockResolvedValue(makeStream()),
+  renderRsc: vi.fn().mockImplementation(async () => makeStream()),
   parseRsc: vi.fn(),
   renderHtml: vi
     .fn<Unstable_RenderHtml>()
@@ -174,7 +179,7 @@ describe('request dispatch', () => {
     expect(utils.renderRsc.mock.calls[0]![0]).not.toHaveProperty(IS_ORIGIN_ID);
   });
 
-  it('renders nothing for an action that does not ask, so an effect calling it cannot loop', async () => {
+  it('renders no slots for an action that does not ask, so an effect calling it cannot loop', async () => {
     const { handleRequest } = createConfiguredRouter({
       getConfigs: async () => [dynamicRoute('/dest')],
     });
@@ -184,7 +189,7 @@ describe('request dispatch', () => {
       utils,
     );
     expect(utils.renderRsc).toHaveBeenCalledWith(
-      {},
+      { [INTENT_ID]: intentPromise },
       { value: 'fn-value', etags: {} },
     );
   });
@@ -213,7 +218,7 @@ describe('request dispatch', () => {
       utils,
     );
     expect(utils.renderRsc).toHaveBeenCalledWith(
-      {},
+      { [INTENT_ID]: intentPromise },
       { value: 'fn-value', etags: {} },
     );
   });

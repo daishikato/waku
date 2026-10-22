@@ -16,6 +16,7 @@ import {
 import {
   ACTION_LOCATION_HEADER,
   HAS404_ID,
+  INTENT_ID,
   IS_ORIGIN_ID,
   IS_STATIC_ID,
   ROUTE_ID,
@@ -23,6 +24,10 @@ import {
   encodeSliceId,
 } from '../src/router/isomorphic-utils/router-protocol.js';
 import { deserializeRsc, serializeRsc } from '../src/server.js';
+
+const intentPromise = expect.objectContaining({
+  then: expect.any(Function),
+});
 
 vi.mock('../src/server.js', () => ({
   serializeRsc: vi.fn(async (value: unknown) =>
@@ -85,7 +90,7 @@ describe('defineRouter route resolver', () => {
     expect(render).toHaveBeenCalledOnce();
     expect(utils.renderRsc).toHaveBeenLastCalledWith(
       expect.objectContaining({ 'route:/two': 'shell' }),
-      expect.objectContaining({ etags: { 'route:/two': 1 } }),
+      { etags: { 'route:/two': 1 } },
     );
   });
 
@@ -467,7 +472,11 @@ describe('defineRouter route resolver', () => {
     );
     expect(render).not.toHaveBeenCalled();
     expect(utils.renderRsc).toHaveBeenCalledWith(
-      { [ROUTE_ID]: ['/', ''], [IS_STATIC_ID]: false },
+      {
+        [ROUTE_ID]: ['/', ''],
+        [IS_STATIC_ID]: false,
+        [INTENT_ID]: intentPromise,
+      },
       { etags: {} },
     );
   });
@@ -489,7 +498,7 @@ describe('defineRouter route resolver', () => {
     );
     expect(resolveElement).toHaveBeenCalledWith('slice:fragment');
     expect(utils.renderRsc).toHaveBeenCalledWith(
-      { 'slice:fragment': 'fragment' },
+      { 'slice:fragment': 'fragment', [INTENT_ID]: intentPromise },
       { etags: { 'slice:fragment': 'v1' } },
     );
   });
@@ -707,10 +716,14 @@ describe('defineRouter route resolver', () => {
     const files = new Map<string, string>();
     const metadata = new Map<string, string>();
     const utils = makeUtils();
-    utils.renderRsc.mockImplementation(
-      async (elements, options) =>
-        new Response(JSON.stringify({ elements, etags: options?.etags })).body!,
-    );
+    utils.renderRsc.mockImplementation(async (elements, options) => {
+      const payload = { ...elements };
+      const intent = payload[INTENT_ID] as { value?: string } | undefined;
+      payload[INTENT_ID] = intent?.value;
+      return new Response(
+        JSON.stringify({ elements: payload, etags: options?.etags }),
+      ).body!;
+    });
     await router.handleBuild({
       ...utils,
       rscPath2pathname: (path) => 'payload/' + path,
@@ -726,7 +739,10 @@ describe('defineRouter route resolver', () => {
     expect(files.size).toBe(1);
     expect(
       JSON.parse(files.get('payload/' + encodeSliceId('folder/fragment'))!),
-    ).toEqual({ elements: { [id]: 'fragment' }, etags: { [id]: 1 } });
+    ).toEqual({
+      elements: { [id]: 'fragment' },
+      etags: { [id]: 1 },
+    });
     const runtime = unstable_defineRouter({
       resolve: async () => null,
       resolveElement,
@@ -740,7 +756,7 @@ describe('defineRouter route resolver', () => {
       runtimeUtils,
     );
     expect(runtimeUtils.renderRsc).toHaveBeenCalledWith(
-      { [id]: 'fragment' },
+      { [id]: 'fragment', [INTENT_ID]: intentPromise },
       { etags: { [id]: 1 } },
     );
     expect(render).toHaveBeenCalledOnce();
@@ -1054,7 +1070,10 @@ describe('defineRouter route resolver', () => {
       expect.any(ReadableStream),
     );
     expect(utils.renderRsc).toHaveBeenCalledWith(
-      { 'slice:summary': 'static summary' },
+      {
+        'slice:summary': 'static summary',
+        [INTENT_ID]: intentPromise,
+      },
       { etags: { 'slice:summary': 1 } },
     );
   });
