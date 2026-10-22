@@ -43,7 +43,8 @@ ordinary async dependencies, streams/iterators, binary fragmentation, aliases,
 request isolation, cancellation, and transport failure. Its expected absence
 behavior follows the pinned runtime. The experimental reference retains a
 pending weak promise on EOF or failure; the stable fallback returns undefined
-on successful unused completion and rejects an unpublished reference on failure.
+at native EOF, including a request abort that closes Flight normally. A broken
+transport rejects an unpublished ordinary reference in the stable fallback.
 
 The SSR probe runs the RSC renderer in a separate process with the `react-server`
 condition. The parent uses the matched React DOM server and Flight decoder with

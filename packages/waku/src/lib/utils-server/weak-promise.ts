@@ -1,3 +1,17 @@
+type WeakPromiseState = {
+  value: string | undefined;
+  resolve: (value: string) => void;
+  halt: () => void;
+  subscribe: (listener: (value: string) => void) => void;
+};
+
+const weakPromises = new WeakMap<object, WeakPromiseState>();
+
+export const getWeakPromise = (value: unknown) =>
+  typeof value === 'object' && value !== null
+    ? weakPromises.get(value)
+    : undefined;
+
 /**
  * Creates a fulfill-only weak thenable for a top-level `renderRsc` element.
  * It does not keep rendering open. Values must be strings; callers encode data.
@@ -14,15 +28,41 @@ export function createWeakPromise<T extends string = string>(): {
   promise: PromiseLike<T | undefined>;
   resolve: (value: T) => void;
 } {
-  let settled = false;
-  let value: T | undefined;
-  const listeners = new Set<(value: T) => void>();
+  let closed = false;
+  const listeners = new Set<(value: string) => void>();
+  const state: WeakPromiseState = {
+    value: undefined,
+    resolve(value) {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      state.value = value;
+      for (const listener of listeners) {
+        listener(value);
+      }
+      listeners.clear();
+    },
+    halt() {
+      closed = true;
+      listeners.clear();
+    },
+    subscribe(listener) {
+      if (state.value !== undefined) {
+        listener(state.value);
+      } else if (!closed) {
+        listeners.add(listener);
+      }
+    },
+  };
   const promise = {
     get status() {
-      return settled ? ('fulfilled' as const) : ('pending_weak' as const);
+      return state.value !== undefined
+        ? ('fulfilled' as const)
+        : ('pending_weak' as const);
     },
     get value() {
-      return value;
+      return state.value as T | undefined;
     },
     then<TResult1 = T | undefined, TResult2 = never>(
       onFulfilled?:
@@ -31,35 +71,20 @@ export function createWeakPromise<T extends string = string>(): {
         ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
     ): Promise<TResult1 | TResult2> {
       return new Promise((resolve, reject) => {
-        const fulfill = (value: T) => {
+        state.subscribe((value) => {
           try {
             resolve(
-              onFulfilled ? onFulfilled(value) : (value as unknown as TResult1),
+              onFulfilled
+                ? onFulfilled(value as T)
+                : (value as unknown as TResult1),
             );
           } catch (error) {
             reject(error);
           }
-        };
-        if (settled) {
-          fulfill(value as T);
-        } else {
-          listeners.add(fulfill);
-        }
+        });
       });
     },
   };
-  return {
-    promise,
-    resolve(next) {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      value = next;
-      for (const listener of listeners) {
-        listener(next);
-      }
-      listeners.clear();
-    },
-  };
+  weakPromises.set(promise, state);
+  return { promise, resolve: (value: T) => state.resolve(value) };
 }

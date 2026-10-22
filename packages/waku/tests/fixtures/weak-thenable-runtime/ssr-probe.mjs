@@ -1,8 +1,13 @@
+/* global globalThis */
+import { clearTimeout, setImmediate, setTimeout } from 'node:timers';
+import process from 'node:process';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { fileURLToPath } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
+
+const { AbortController, ReadableStream, TextDecoder, console } = globalThis;
 
 const require = createRequire(import.meta.url);
 const React = require('react');

@@ -4,6 +4,7 @@ import type {
   Unstable_RenderRsc,
 } from '../types.js';
 import { ETAGS_ID } from '../utils-isomorphic/etags.js';
+import { renderWithWeakPromises } from './weak-promise-stream.js';
 
 const validateRscElementIds = (elements: Record<string, unknown>) => {
   for (const id of Object.keys(elements)) {
@@ -62,22 +63,24 @@ export function createRenderUtils({
       if (options?.etags && Object.keys(options.etags).length) {
         data[ETAGS_ID] = options.etags;
       }
-      return renderToReadableStream(
-        data,
-        {
-          temporaryReferences,
-          onError,
-          debugChannel: createDebugChannel?.(),
-        },
-        {
-          onClientReference(metadata: {
-            id: string;
-            name: string;
-            deps: { js: string[]; css: string[] };
-          }) {
-            options?.unstable_clientModuleCallback?.(metadata.deps.js);
+      return renderWithWeakPromises(data, (model) =>
+        renderToReadableStream(
+          model,
+          {
+            temporaryReferences,
+            onError,
+            debugChannel: createDebugChannel?.(),
           },
-        },
+          {
+            onClientReference(metadata: {
+              id: string;
+              name: string;
+              deps: { js: string[]; css: string[] };
+            }) {
+              options?.unstable_clientModuleCallback?.(metadata.deps.js);
+            },
+          },
+        ),
       );
     },
     async renderHtml(elementsStream, html, options) {
