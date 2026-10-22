@@ -395,3 +395,26 @@ test('a hash-only navigation preserves the current server-render intent', async 
   expect(window.location.pathname).toBe('/done');
   expect(view.textContent).toContain('Page /done');
 });
+
+test('an instant navigation observes its new intent while the previous page intent stays pending', async () => {
+  const previous = deferIntent();
+  const incoming = deferIntent();
+  mocks.queue.push({
+    ...payload('/one', previous.promise),
+    [getRouteSlotId('/gate')]: <p>Page /gate</p>,
+    [ETAGS_ID]: { root: 1, [getRouteSlotId('/gate')]: 1 },
+  });
+  const view = await mount();
+  mocks.queue.push(payload('/gate', incoming.promise), payload('/done'));
+  await act(async () => {
+    await controls.router.push('/gate', { unstable_instant: true });
+    await flush();
+  });
+  expect(window.location.pathname).toBe('/gate');
+  await act(async () => {
+    incoming.resolve({ status: 307, location: '/done' });
+    await flush();
+  });
+  expect(window.location.pathname).toBe('/done');
+  expect(view.textContent).toContain('Page /done');
+});

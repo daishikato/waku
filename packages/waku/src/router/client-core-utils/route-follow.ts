@@ -3,6 +3,7 @@ import {
   type RouteProps,
   pathnameToRoutePath,
 } from '../isomorphic-utils/route-path.js';
+import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import {
   getRouteUrl,
   isInsideBase,
@@ -52,9 +53,27 @@ export const decideFollow = (
   requested: FollowRequest,
   options: FollowOptions,
 ): FollowDecision =>
-  decideRouteIntent(getErrorInfo(error), requested, options, error);
+  decideNavigation(getErrorInfo(error), requested, options, error);
 
+/**
+ * Decides how to follow a decoded `INTENT` value using the triggering route,
+ * browser URL and preceding follow count. Absolute destinations leave the
+ * document; relative destinations and custom 404s share the follow budget.
+ */
 export const decideRouteIntent = (
+  intent: RouteIntentData,
+  requested: FollowRequest,
+  options: FollowOptions,
+): FollowDecision =>
+  decideNavigation(
+    'location' in intent && !intent.location.startsWith('/')
+      ? { ...intent, unstable_leave: true }
+      : intent,
+    requested,
+    options,
+  );
+
+const decideNavigation = (
   info: ReturnType<typeof getErrorInfo>,
   requested: FollowRequest,
   options: FollowOptions,
