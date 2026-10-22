@@ -22,13 +22,16 @@ import {
 } from 'waku/minimal/client';
 import {
   type Unstable_FollowDecision as FollowDecision,
+  unstable_INTENT_ID as INTENT_ID,
   unstable_MAX_FOLLOWS_PER_NAVIGATION as MAX_FOLLOWS_PER_NAVIGATION,
   unstable_ROUTE_ID as ROUTE_ID,
+  type Unstable_RouteIntentData as RouteIntentData,
   type Unstable_RouteProps as RouteProps,
   type Unstable_RouterHost as RouterHost,
   RouterHostContext_UNSTABLE as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
   unstable_decideFollow as decideFollow,
+  unstable_decideRouteIntent as decideRouteIntent,
   unstable_encodeRoutePath as encodeRoutePath,
   unstable_getRouteFromElements as getRouteFromElements,
   unstable_getRouteSlotId as getRouteSlotId,
@@ -47,6 +50,7 @@ type FollowRun = (
   next: RouteProps,
   signal: AbortSignal,
   follows: number,
+  url?: URL,
 ) => Promise<void>;
 
 type LastFollow = { href: string; follows: number };
@@ -79,6 +83,9 @@ const FollowRedirect = ({
   // follows+1 — still this dispatch — so the event reads follows without
   // listing it as a dependency.
   const startFollow = useEffectEvent(() => {
+    if (decision.type !== 'follow') {
+      return;
+    }
     const last = lastFollowRef.current;
     if (last && last.href === href && last.follows === follows) {
       return;
@@ -90,14 +97,15 @@ const FollowRedirect = ({
       void window.navigation.navigate(href, {
         history: 'replace',
         state: { follows: nextFollows },
-        info: { scroll: false, follows: nextFollows },
+        info: { scroll: false, follows: nextFollows, target: decision.target },
       });
       return;
     }
     void runRef.current(
-      parseRoute(new URL(href, window.location.href)),
+      decision.target,
       new AbortController().signal,
       nextFollows,
+      decision.url,
     );
   });
   useEffect(() => {
@@ -108,6 +116,69 @@ const FollowRedirect = ({
     startFollow();
   }, [decision.type, href]);
   return null;
+};
+
+const IntentFollow = ({
+  pending,
+  route,
+  has404,
+}: {
+  pending: PromiseLike<string | undefined> | undefined;
+  route: RouteProps;
+  has404: boolean;
+}) => {
+  const { follows } = use(FollowHostContext)!;
+  const [result, setResult] = useState<
+    | { pending: typeof pending; value: string }
+    | { pending: typeof pending; error: unknown }
+  >();
+  useEffect(() => {
+    if (!pending) {
+      return;
+    }
+    let active = true;
+    Promise.resolve(pending).then(
+      (value) => {
+        if (active && value !== undefined) {
+          setResult({ pending, value });
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          setResult({ pending, error });
+        }
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [pending]);
+  if (!result || result.pending !== pending) {
+    return null;
+  }
+  if ('error' in result) {
+    throw result.error;
+  }
+  const intent = JSON.parse(result.value) as RouteIntentData;
+  if (intent.status === 404 && route.path === '/404') {
+    return null;
+  }
+  const decision = decideRouteIntent(
+    intent,
+    {
+      route,
+      url: getRouteUrl(route),
+      follows,
+    },
+    { has404, maxFollows: MAX_FOLLOWS_PER_NAVIGATION },
+  );
+  if (decision.type === 'stop') {
+    throw decision.error;
+  }
+  if (decision.type === 'none') {
+    return <h1>Not Found</h1>;
+  }
+  return <FollowRedirect decision={decision} />;
 };
 
 // slot-thrown stop/none must leave this boundary so the fallback can render
@@ -123,7 +194,20 @@ class FollowFailure extends Component<
     const { error } = this.state;
     if (error !== null) {
       const message = error instanceof Error ? error.message : String(error);
-      return <p data-testid="follow-error">{message}</p>;
+      const content = <p data-testid="follow-error">{message}</p>;
+      return (
+        <FollowHostContext.Consumer>
+          {(host) =>
+            host?.ownsNavigation ? (
+              <html>
+                <body>{content}</body>
+              </html>
+            ) : (
+              content
+            )
+          }
+        </FollowHostContext.Consumer>
+      );
     }
     return this.props.children;
   }
@@ -247,7 +331,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     onRouteChange: commitActionRoute,
   });
 
-  const runImpl: FollowRun = async (next, signal, followCount) => {
+  const runImpl: FollowRun = async (next, signal, followCount, url) => {
     const base = resolvedRef.current;
     const settled = getRouteFromElements(base) ?? routeFallback;
     const outcome = await cache.load(next, {
@@ -256,6 +340,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
       settled,
       base,
       follows: followCount,
+      ...(url ? { url } : {}),
     });
     if (outcome.type === 'aborted') {
       return;
@@ -320,7 +405,12 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
         return;
       }
       const info = event.info as
-        | { scroll?: boolean; follows?: number; fromAction?: boolean }
+        | {
+            scroll?: boolean;
+            follows?: number;
+            fromAction?: boolean;
+            target?: RouteProps;
+          }
         | undefined;
       // replace is not "redirect"; only our follow metadata continues a chain.
       // a hash-only user navigation never loads, but it is still a fresh chain.
@@ -335,7 +425,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
         event.intercept({ scroll: 'manual', focusReset: 'manual' });
         return;
       }
-      const next = parseRoute(dest);
+      const next = info?.target ?? parseRoute(dest);
       const current = parseRoute(new URL(window.location.href));
       if (next.path === current.path && next.query === current.query) {
         return;
@@ -346,6 +436,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
             next,
             event.signal,
             typeof info?.follows === 'number' ? info.follows : 0,
+            dest,
           ),
         // useSetSearch passes scroll: false; intercept defaults to after-transition
         ...(info?.scroll === false ? { scroll: 'manual' } : {}),
@@ -369,22 +460,29 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
   );
 
   const routeSlot = (
-    <FollowFailure key={route.path}>
-      <FollowBoundary
-        key={route.path}
-        routeKey={`${route.path}\0${route.query}\0${route.hash}`}
-        route={route}
-        has404={has404}
-        follows={follows}
-      >
-        <Slot id={getRouteSlotId(route.path)} />
-      </FollowBoundary>
-    </FollowFailure>
+    <FollowBoundary
+      key={route.path}
+      routeKey={`${route.path}\0${route.query}\0${route.hash}`}
+      route={route}
+      has404={has404}
+      follows={follows}
+    >
+      <Slot id={getRouteSlotId(route.path)} />
+    </FollowBoundary>
   );
 
   return (
     <RouterHostContext value={host}>
-      {ownsNavigation ? <Slot id="root">{routeSlot}</Slot> : routeSlot}
+      <FollowFailure key={route.path}>
+        <IntentFollow
+          pending={
+            elements[INTENT_ID] as PromiseLike<string | undefined> | undefined
+          }
+          route={route}
+          has404={has404}
+        />
+        {ownsNavigation ? <Slot id="root">{routeSlot}</Slot> : routeSlot}
+      </FollowFailure>
     </RouterHostContext>
   );
 };

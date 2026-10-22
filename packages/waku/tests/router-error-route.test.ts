@@ -23,7 +23,28 @@ const at = (path: string, query = '', follows = 0) => {
   return { route: parseRoute(url), url, follows };
 };
 
-describe('decideRouteIntent', () => {
+const decideLegacyInfo = (
+  info: ReturnType<typeof getErrorInfo>,
+  source: Parameters<typeof decideFollow>[1],
+  config: Parameters<typeof decideFollow>[2],
+) =>
+  decideFollow(
+    info ? createCustomError('Navigation', info) : new Error('ordinary error'),
+    source,
+    config,
+  );
+
+test('an intent with an absolute destination leaves even when it names this origin', () => {
+  expect(
+    decideRouteIntent(
+      { status: 307, location: window.location.origin + '/next' },
+      at('/from'),
+      options,
+    ).type,
+  ).toBe('leave');
+});
+
+describe('legacy redirect and not-found errors', () => {
   test('a document location leaves, whatever its origin', () => {
     const sameOrigin = {
       location: '/api/logout',
@@ -35,13 +56,13 @@ describe('decideRouteIntent', () => {
     };
 
     // the server already decided no route answers it
-    expect(decideRouteIntent(sameOrigin, at('/from'), options)).toEqual({
+    expect(decideLegacyInfo(sameOrigin, at('/from'), options)).toEqual({
       type: 'leave',
       url: expect.any(URL),
     });
-    expect(
-      decideRouteIntent(other, at('/from'), options).type === 'leave',
-    ).toBe(true);
+    expect(decideLegacyInfo(other, at('/from'), options).type === 'leave').toBe(
+      true,
+    );
   });
 
   test('an app path redirect keeps the route and rebuilds its url', () => {
@@ -50,7 +71,7 @@ describe('decideRouteIntent', () => {
       location: '/next?a=1#frag',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision).toEqual({
       type: 'follow',
@@ -67,7 +88,7 @@ describe('decideRouteIntent', () => {
       location: '/next',
     };
 
-    const decision = decideRouteIntent(intent, at('/docs/from'), options);
+    const decision = decideLegacyInfo(intent, at('/docs/from'), options);
 
     expect(decision.type === 'follow' && decision.target.path).toBe('/next');
     expect(decision.type === 'follow' && decision.url.pathname).toBe(
@@ -81,7 +102,7 @@ describe('decideRouteIntent', () => {
       location: `${window.location.origin}/next`,
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision.type === 'follow' && decision.target.path).toBe('/next');
   });
@@ -92,7 +113,7 @@ describe('decideRouteIntent', () => {
       location: 'https://example.com/next',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision).toEqual({ type: 'leave', url: expect.any(URL) });
     expect(decision.type === 'leave' && decision.url.href).toBe(
@@ -106,7 +127,7 @@ describe('decideRouteIntent', () => {
       location: '//example.com/next',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision.type).toBe('leave');
   });
@@ -117,7 +138,7 @@ describe('decideRouteIntent', () => {
       location: 'https://user:pw@example.com/next',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision.type === 'leave' && decision.url.href).toBe(
       'https://example.com/next',
@@ -134,7 +155,7 @@ describe('decideRouteIntent', () => {
         location: 'http://app.example/next',
       };
 
-      const decision = decideRouteIntent(intent, at('/from'), options);
+      const decision = decideLegacyInfo(intent, at('/from'), options);
 
       expect(decision.type).toBe('follow');
       expect(decision.type === 'follow' && decision.url.protocol).toBe(
@@ -151,7 +172,7 @@ describe('decideRouteIntent', () => {
       location: 'javascript:alert(1)',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision).toEqual({
       type: 'stop',
@@ -167,7 +188,7 @@ describe('decideRouteIntent', () => {
       location: 'ftp://user:pw@host/x',
     };
 
-    expect(decideRouteIntent(intent, at('/from'), options)).toEqual({
+    expect(decideLegacyInfo(intent, at('/from'), options)).toEqual({
       type: 'stop',
       error: expect.objectContaining({
         message: 'cannot follow a redirect to ftp://host/x',
@@ -181,7 +202,7 @@ describe('decideRouteIntent', () => {
       location: 'https://[',
     };
 
-    const decision = decideRouteIntent(intent, at('/from'), options);
+    const decision = decideLegacyInfo(intent, at('/from'), options);
 
     expect(decision).toEqual({
       type: 'stop',
@@ -194,7 +215,7 @@ describe('decideRouteIntent', () => {
   test('a 404 goes to the 404 route with the requested query and url', () => {
     const intent = { status: 404 };
 
-    const decision = decideRouteIntent(intent, at('/missing?foo=bar'), {
+    const decision = decideLegacyInfo(intent, at('/missing?foo=bar'), {
       ...options,
       has404: true,
     });
@@ -212,14 +233,14 @@ describe('decideRouteIntent', () => {
   test('a 404 without a 404 route is not followed', () => {
     const intent = { status: 404 };
 
-    expect(decideRouteIntent(intent, at('/missing'), options)).toEqual({
+    expect(decideLegacyInfo(intent, at('/missing'), options)).toEqual({
       type: 'none',
     });
   });
 
   test('a plain error is not followed', () => {
     expect(
-      decideRouteIntent(getErrorInfo(new Error('boom')), at('/from'), {
+      decideLegacyInfo(getErrorInfo(new Error('boom')), at('/from'), {
         ...options,
         has404: true,
       }),
@@ -233,7 +254,7 @@ describe('decideRouteIntent', () => {
       status: 307,
       location: `${window.location.origin}/login`,
     };
-    expect(decideRouteIntent(intent, at('/docs/from'), options).type).toBe(
+    expect(decideLegacyInfo(intent, at('/docs/from'), options).type).toBe(
       'leave',
     );
   });

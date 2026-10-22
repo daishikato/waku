@@ -8,6 +8,7 @@ import * as router from '../src/router/base-types.js';
 import {
   MAX_FOLLOWS_PER_NAVIGATION,
   decideFollow,
+  decideRouteIntent,
   isFollowable,
 } from '../src/router/client-core-utils/route-follow.js';
 import * as clientCore from '../src/router/client-core.js';
@@ -39,12 +40,14 @@ describe('waku/router/client-core surface', () => {
       'RouterHostContext_UNSTABLE',
       'Slice_UNSTABLE',
       'unstable_HAS404_ID',
+      'unstable_INTENT_ID',
       'unstable_IS_STATIC_ID',
       'unstable_MAX_FOLLOWS_PER_NAVIGATION',
       'unstable_ROUTE_ID',
       'unstable_buildMergePatch',
       'unstable_createRscParams',
       'unstable_decideFollow',
+      'unstable_decideRouteIntent',
       'unstable_decodeRoutePath',
       'unstable_decodeSliceId',
       'unstable_encodeRoutePath',
@@ -112,6 +115,7 @@ describe('waku/router/client-core surface', () => {
 
   test('follow primitives share the route intent implementation', () => {
     expect(clientCore.unstable_decideFollow).toBe(decideFollow);
+    expect(clientCore.unstable_decideRouteIntent).toBe(decideRouteIntent);
     expect(clientCore.unstable_isFollowable).toBe(isFollowable);
     expect(clientCore.unstable_MAX_FOLLOWS_PER_NAVIGATION).toBe(
       MAX_FOLLOWS_PER_NAVIGATION,

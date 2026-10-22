@@ -85,10 +85,6 @@ export const RouteIntent = () => {
         return;
       }
       followed.current.set(pending, state);
-      if ('location' in intent && !intent.location.startsWith('/')) {
-        window.location.replace(intent.location);
-        return;
-      }
       const requestedUrl = new URL(
         state?.url ?? window.location.href,
         window.location.href,
