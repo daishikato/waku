@@ -303,9 +303,15 @@ export const useNavigation = (
       if (outcome.type === 'aborted' || requestRef.current !== request) {
         return;
       }
+      const historyIntent =
+        instantResponse &&
+        outcome.follows > initialAttempt.follows &&
+        options.history !== null
+          ? 'replace'
+          : options.history;
       if (outcome.type === 'reused') {
         startTransition(() => {
-          queueCommit(makeStateForAttempt(outcome, options.history), {
+          queueCommit(makeStateForAttempt(outcome, historyIntent), {
             [ROUTE_ID]: [outcome.route.path, outcome.route.query],
             [INTENT_ID]: cache.getStaticRouteIntent(outcome.route),
           });
@@ -314,7 +320,7 @@ export const useNavigation = (
       }
       if (outcome.type === 'failed') {
         const { error } = outcome;
-        commitHistory(outcome.url, options.history);
+        commitHistory(outcome.url, historyIntent);
         const failureState: RouterState = {
           ...makeRouterState(outcome.route, outcome.url, {
             history: null,
@@ -337,19 +343,19 @@ export const useNavigation = (
         setNavigationError({ error });
         throw error;
       }
-      if (instantResponse) {
+      if (instantResponse && outcome.follows === initialAttempt.follows) {
         cache.learnStaticFromElements(outcome.elements);
         finishRequest();
         return;
       }
       const destination = resolveServerRedirect(
         outcome.elements,
-        makeStateForAttempt(outcome, options.history),
+        makeStateForAttempt(outcome, historyIntent),
         outcome.route.path,
       );
       const finalState = makeStateForAttempt(
         { ...destination, follows: outcome.follows },
-        options.history,
+        historyIntent,
       );
       startTransition(() => {
         queueCommit(

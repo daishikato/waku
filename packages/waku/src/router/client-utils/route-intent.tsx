@@ -54,6 +54,16 @@ export const RouteIntent = () => {
       mounted.current = false;
     };
   }, []);
+  const isCurrent = useEffectEvent((source: Elements) => {
+    const pendingRoute = getPendingRoute?.();
+    const sourceRoute = getRouteFromElements(source);
+    return (
+      (!pendingRoute ||
+        !sourceRoute ||
+        isSameRscRoute(pendingRoute, sourceRoute)) &&
+      (!getElements || getElements()[INTENT_ID] === source[INTENT_ID])
+    );
+  });
   const follow = useEffectEvent(
     (
       value: string,
@@ -64,23 +74,13 @@ export const RouteIntent = () => {
       const state = getRouterState(source);
       if (
         !changeRoute ||
+        !isCurrent(source) ||
         (followed.current.has(pending) &&
           followed.current.get(pending) === state)
       ) {
         return;
       }
-      const pendingRoute = getPendingRoute?.();
       const sourceRoute = getRouteFromElements(source);
-      if (
-        pendingRoute &&
-        sourceRoute &&
-        !isSameRscRoute(pendingRoute, sourceRoute)
-      ) {
-        return;
-      }
-      if (getElements && getElements()[INTENT_ID] !== source[INTENT_ID]) {
-        return;
-      }
       if (intent.status === 404 && sourceRoute?.path === '/404') {
         return;
       }
@@ -145,7 +145,7 @@ export const RouteIntent = () => {
         }
       },
       (error: unknown) => {
-        if (active) {
+        if (active && isCurrent(elements)) {
           setFailure({ error });
         }
       },
@@ -188,7 +188,8 @@ export const RouteIntent = () => {
             if (
               mounted.current &&
               !options.signal?.aborted &&
-              getRouterState(getElements()) === scope
+              getRouterState(getElements()) === scope &&
+              isCurrent(getElements())
             ) {
               setFailure({ error });
             }

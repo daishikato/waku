@@ -14,6 +14,7 @@ import {
 } from '../src/minimal/client.js';
 import { Router, useRouter } from '../src/router/client.js';
 import {
+  HAS404_ID,
   INTENT_ID,
   IS_STATIC_ID,
   ROUTE_ID,
@@ -53,10 +54,12 @@ vi.mock('../src/server.js', () => ({
 
 const defer = <T,>() => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 };
 const deferIntent = () => {
   const deferred = defer<string | undefined>();
@@ -155,7 +158,7 @@ test('a navigation commits while its intent stays pending', async () => {
   expect(controls.elements[INTENT_ID]).toBe(pending.promise);
 });
 
-test.each(['redirect', 'notFound'] as const)(
+test.each(['redirect', 'notFound', 'notFoundWithoutPage'] as const)(
   'a cancelled resolver follows %s from a pending navigation',
   async (kind) => {
     mocks.queue.push(payload('/one'));
@@ -189,7 +192,10 @@ test.each(['redirect', 'notFound'] as const)(
       },
     );
     const destination = kind === 'redirect' ? '/done' : '/404';
-    mocks.queue.push(elements, payload(destination));
+    mocks.queue.push(elements);
+    if (kind !== 'notFoundWithoutPage') {
+      mocks.queue.push(payload(destination));
+    }
     await act(async () => {
       await controls.router.push('/gate?q=one');
       await flush();
@@ -197,7 +203,9 @@ test.each(['redirect', 'notFound'] as const)(
     expect(window.location.pathname + window.location.search).toBe(
       kind === 'redirect' ? '/done' : '/gate?q=one',
     );
-    expect(view.textContent).toContain('Page ' + destination);
+    expect(view.textContent).toContain(
+      kind === 'notFoundWithoutPage' ? 'Not Found' : 'Page ' + destination,
+    );
   },
 );
 
@@ -227,6 +235,18 @@ test('notFound without a custom page shows the fallback at the requested URL', a
   expect(view.textContent).toContain('Not Found');
   expect(window.location.pathname).toBe('/one');
   expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});
+
+test('a not-found intent shows the sibling fallback when the root slot is null', async () => {
+  const pending = deferIntent();
+  mocks.queue.push({ ...payload('/one', pending.promise), root: null });
+  const view = await mount();
+  await act(async () => {
+    pending.resolve({ status: 404 });
+    await flush();
+  });
+  expect(view.querySelector('h1')?.textContent).toBe('Not Found');
+  expect(window.location.pathname).toBe('/one');
 });
 
 test.each(['slice', 'action'] as const)(
@@ -278,6 +298,32 @@ test('a partial intent is observed while the page intent remains pending', async
   expect(window.location.pathname).toBe('/done');
   expect(view.textContent).toContain('Page /done');
   page.resolve(null);
+});
+
+test('a partial fetch in an initial descendant layout effect observes its intent without a merge', async () => {
+  const FetchOnMount = () => {
+    const fetchRsc = useFetchRsc();
+    useLayoutEffect(() => {
+      void fetchRsc(encodeSliceId('sidebar'));
+    }, [fetchRsc]);
+    return <p>Page /one</p>;
+  };
+  mocks.queue.push(
+    { ...payload('/one'), [getRouteSlotId('/one')]: <FetchOnMount /> },
+    {
+      [INTENT_ID]: Promise.resolve(
+        JSON.stringify({ status: 307, location: '/done' }),
+      ),
+      sidebar: 'loaded',
+    },
+    payload('/done'),
+  );
+  const view = await mount();
+  await act(async () => {
+    await flush();
+  });
+  expect(view.textContent).toContain('Page /done');
+  expect(window.location.pathname).toBe('/done');
 });
 
 test('a late page intent cannot leave a reused static route', async () => {
@@ -354,6 +400,47 @@ test('an old intent cannot supersede a newer pending navigation', async () => {
   expect(window.location.pathname).toBe('/two');
   expect(view.textContent).toContain('Page /two');
 });
+
+test.each(['page', 'slice', 'action'] as const)(
+  'a rejected %s intent cannot interrupt a newer pending navigation',
+  async (source) => {
+    const pending = defer<string | undefined>();
+    const destination = defer<Elements>();
+    mocks.queue.push(
+      payload('/one', source === 'page' ? pending.promise : undefined),
+    );
+    const view = await mount();
+    if (source !== 'page') {
+      mocks.queue.push({ [INTENT_ID]: pending.promise });
+      await act(async () => {
+        if (source === 'action') {
+          await unstable_callServerRsc('actions#save', []);
+        } else {
+          await controls.merge(await controls.fetch(encodeSliceId('sidebar')));
+        }
+        await flush();
+      });
+    }
+    mocks.queue.push(destination.promise);
+    let pushed!: Promise<void>;
+    await act(async () => {
+      pushed = controls.router.push('/two');
+      await flush();
+    });
+    await act(async () => {
+      pending.reject(new Error('old response disconnected'));
+      await flush();
+    });
+    expect(view.textContent).toContain('Page /one');
+    await act(async () => {
+      destination.resolve(payload('/two'));
+      await pushed;
+      await flush();
+    });
+    expect(view.textContent).toContain('Page /two');
+    expect(window.location.pathname).toBe('/two');
+  },
+);
 
 test('a cached static intent is followed again on a new route activation', async () => {
   mocks.queue.push(payload('/one'));
@@ -484,4 +571,70 @@ test('an absolute intent leaves once without fetching its destination', async ()
     window.location.origin + '/api/logout',
   );
   expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});
+
+test.each([false, true])(
+  'an HTTP 404 renders the custom page at the requested URL (instant: %s)',
+  async (instant) => {
+    mocks.queue.push({
+      ...payload('/one'),
+      [HAS404_ID]: true,
+      [getRouteSlotId('/missing')]: <p>Cached shell /missing</p>,
+      [ETAGS_ID]: { root: 1, [getRouteSlotId('/missing')]: 1 },
+    });
+    const view = await mount();
+    const push = vi.spyOn(window.history, 'pushState');
+    mocks.queue.push(payload('/missing'), payload('/404'));
+    const response = defer<Response>();
+    vi.mocked(fetch).mockReturnValueOnce(response.promise);
+    let pushed!: Promise<void>;
+    await act(async () => {
+      pushed = controls.router.push('/missing?q=one#section', {
+        unstable_instant: instant,
+      });
+      await flush();
+    });
+    await act(async () => {
+      response.resolve(new Response('missing static file', { status: 404 }));
+      await pushed;
+      await flush();
+    });
+    expect(view.textContent).toContain('Page /404');
+    expect(view.textContent).not.toContain('Cached shell /missing');
+    expect(
+      window.location.pathname + window.location.search + window.location.hash,
+    ).toBe('/missing?q=one#section');
+    expect(push).toHaveBeenCalledOnce();
+  },
+);
+
+test('an instant HTTP 404 follow replaces the painted history entry on a server rewrite', async () => {
+  mocks.queue.push({
+    ...payload('/one'),
+    [HAS404_ID]: true,
+    [getRouteSlotId('/missing')]: <p>Cached shell /missing</p>,
+    [ETAGS_ID]: { root: 1, [getRouteSlotId('/missing')]: 1 },
+  });
+  const view = await mount();
+  const push = vi.spyOn(window.history, 'pushState');
+  const replace = vi.spyOn(window.history, 'replaceState');
+  mocks.queue.push(payload('/missing'), payload('/recovered'));
+  const response = defer<Response>();
+  vi.mocked(fetch).mockReturnValueOnce(response.promise);
+  let pushed!: Promise<void>;
+  await act(async () => {
+    pushed = controls.router.push('/missing', { unstable_instant: true });
+    await flush();
+  });
+  expect(view.textContent).toContain('Cached shell /missing');
+  expect(window.location.pathname).toBe('/missing');
+  await act(async () => {
+    response.resolve(new Response('missing static file', { status: 404 }));
+    await pushed;
+    await flush();
+  });
+  expect(view.textContent).toContain('Page /recovered');
+  expect(window.location.pathname).toBe('/recovered');
+  expect(push).toHaveBeenCalledOnce();
+  expect(replace).toHaveBeenCalledOnce();
 });
