@@ -555,7 +555,7 @@ describe('defineRouter route resolver', () => {
     expect(utils.renderHtml).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      expect.objectContaining({ status: 404, unstable_rethrowNotFound: false }),
+      expect.objectContaining({ status: 404 }),
     );
   });
 

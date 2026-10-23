@@ -24,12 +24,9 @@ import {
   useFetchRsc_UNSTABLE as useFetchRsc,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
+import { unstable_parseRequest as parseRequest } from '../src/minimal/server.js';
 import {
-  unstable_createCustomError as createCustomError,
-  unstable_parseRequest as parseRequest,
-} from '../src/minimal/server.js';
-import {
-  unstable_decideFollow as decideFollow,
+  unstable_decideRouteIntent as decideRouteIntent,
   unstable_encodeRoutePath as encodeRoutePath,
   unstable_getRouteFromElements as getRouteFromElements,
   unstable_getRouteSlotId as getRouteSlotId,
@@ -271,32 +268,7 @@ test('an omitted mutable slot still keeps the response route dynamic', async () 
   });
 });
 
-test('a legacy eagerly resolved redirect reports the rendered destination to the client', async () => {
-  const binding = await mount(
-    defineRouter({
-      resolve: async (path, query) => {
-        if (path === '/old') {
-          throw createCustomError('Redirect', {
-            status: 307,
-            location: '/new?q=one',
-          });
-        }
-        return route(path + '?' + query);
-      },
-      getHas404: async () => false,
-    }),
-    '/old',
-  );
-  expect(binding.fetch).toHaveBeenCalledOnce();
-  expect(binding.container.textContent).toBe('/new?q=one');
-  expect(getRouteFromElements(binding.getView().elements)).toEqual({
-    path: '/new',
-    query: 'q=one',
-    hash: '',
-  });
-});
-
-test('a custom 404 reports its rendered route and enables following legacy not-found errors', async () => {
+test('a custom 404 reports its rendered route and enables following not-found intents', async () => {
   const binding = await mount(
     defineRouter({
       resolve: async (path, query) =>
@@ -312,15 +284,9 @@ test('a custom 404 reports its rendered route and enables following legacy not-f
     query: 'q=one',
     hash: '',
   });
-  let error: unknown;
-  try {
-    throw createCustomError('Not Found', { status: 404 });
-  } catch (caught) {
-    error = caught;
-  }
   const url = new URL('http://localhost/missing?q=one');
-  const decision = decideFollow(
-    error,
+  const decision = decideRouteIntent(
+    { status: 404 },
     { route: { path: '/missing', query: 'q=one' }, url, follows: 0 },
     { has404: has404FromElements(elements), maxFollows: 20 },
   );

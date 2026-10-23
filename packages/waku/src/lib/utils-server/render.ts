@@ -56,9 +56,6 @@ export function createRenderUtils({
       if (options && 'value' in options) {
         data._value = options.value;
       }
-      if (options?.documentLocation) {
-        data._location = options.documentLocation;
-      }
       if (options?.etags && Object.keys(options.etags).length) {
         data[ETAGS_ID] = options.etags;
       }
@@ -90,7 +87,6 @@ export function createRenderUtils({
         formState: options.formState as never,
         nonce: options.nonce,
         extraScriptContent: options.unstable_extraScriptContent,
-        rethrowNotFound: options.unstable_rethrowNotFound,
         debugId,
         onError,
       });

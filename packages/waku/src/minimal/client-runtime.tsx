@@ -14,7 +14,6 @@ import type { ReactNode } from 'react';
 import RSDWClient from 'react-server-dom-webpack/client';
 import { consumeInitialRscEntry } from '../lib/utils-client/initial-rsc.js';
 import { setupDebugChannel } from '../lib/utils-client/react-debug-channel.js';
-import { createCustomError } from '../lib/utils-isomorphic/custom-errors.js';
 import {
   ETAGS_HEADER,
   serializeClientEtags,
@@ -64,19 +63,10 @@ const BASE_RSC_PATH = `${import.meta.env?.WAKU_CONFIG_BASE_PATH ?? '/'}${
 const checkStatus = async (
   responsePromise: Promise<Response>,
 ): Promise<Response> => {
-  let response: Response;
-  try {
-    response = await responsePromise;
-  } catch (e) {
-    if (e instanceof TypeError) {
-      // fetch reports a network error as a TypeError, so no response arrived
-      throw createCustomError(e.message, { unstable_networkError: true });
-    }
-    throw e;
-  }
+  const response = await responsePromise;
   if (!response.ok) {
-    throw createCustomError((await response.text()) || response.statusText, {
-      status: response.status,
+    throw new Error((await response.text()) || response.statusText, {
+      cause: response,
     });
   }
   return response;
@@ -145,16 +135,7 @@ const decodeRsc = (
       debugChannel,
       temporaryReferences,
     }),
-  ).then((data) => {
-    if (typeof data._location !== 'string') {
-      return data;
-    }
-    // no fetch can follow this, so it fails here and the browser goes instead
-    throw createCustomError('document navigation', {
-      location: data._location,
-      unstable_leave: true,
-    });
-  });
+  );
 
 const reloadOnBuildIdMismatch = (
   elements: Promise<Elements>,
@@ -559,5 +540,4 @@ export const INTERNAL_ServerRoot = ({
   </RootStoreContext>
 );
 
-export { getErrorInfo as unstable_getErrorInfo } from '../lib/utils-isomorphic/custom-errors.js';
 export { isRenderCancellation as unstable_isRenderCancellation } from '../lib/utils-isomorphic/render-cancellation.js';

@@ -119,7 +119,9 @@ export const RouteIntent = () => {
       const { target, url } = decision;
       startTransition(() => {
         changeRoute(target, {
-          shouldScroll: true,
+          shouldScroll: state
+            ? state.scroll !== null
+            : target.path !== sourceRoute?.path,
           history: 'replace',
           refetch: true,
           url,

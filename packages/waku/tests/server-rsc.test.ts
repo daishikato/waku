@@ -1,8 +1,4 @@
 import { describe, expect, test, vi } from 'vitest';
-import {
-  createCustomError,
-  getErrorInfo,
-} from '../src/lib/utils-isomorphic/custom-errors.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -67,7 +63,7 @@ describe('waku/server RSC helpers', () => {
     );
   });
 
-  test('serializeRsc returns a waku digest and logs anything else', async () => {
+  test('serializeRsc preserves cancellation and logs ordinary errors', async () => {
     const { serializeRsc } = await import('../src/server.js');
     const consoleError = vi
       .spyOn(console, 'error')
@@ -81,11 +77,9 @@ describe('waku/server RSC helpers', () => {
         onError: (e: unknown) => string | undefined;
       };
 
-      // react stores whatever onError returns as the error's digest
-      const custom = createCustomError('not found', { status: 404 });
-      expect(getErrorInfo({ digest: options.onError(custom) })).toEqual({
-        status: 404,
-      });
+      expect(options.onError(Symbol.for('waku.render-cancellation'))).toBe(
+        'WAKU_CANCEL_RENDER',
+      );
       expect(consoleError).not.toHaveBeenCalled();
 
       expect(options.onError(new Error('boom'))).toBeUndefined();
