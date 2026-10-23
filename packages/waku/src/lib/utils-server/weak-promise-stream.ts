@@ -6,12 +6,12 @@ const lengthTags = new Set(
   Array.from('TAOoUSsLlGgMmVb', (tag) => tag.charCodeAt(0)),
 );
 type WeakState = NonNullable<ReturnType<typeof getWeakPromise>>;
-type Entry = { state: WeakState; placeholder: Promise<string>; id?: string };
+type Entry = { placeholder: Promise<string>; id?: string };
 
 function forwardFlightRecords(
   emit: (bytes: Uint8Array) => void,
-  visit: (id: string, row: string) => boolean,
-  boundary: () => void,
+  consumeMarker: (id: string, row: string) => boolean,
+  flush: () => void,
   markerLength: number,
 ) {
   let buffered = new Uint8Array(0);
@@ -20,9 +20,27 @@ function forwardFlightRecords(
     | true
     | { id: string; header: Uint8Array; parts: Uint8Array[]; size: number }
     | undefined;
+  // Producer notifications wait for a complete record before publishing rows.
+  let flushRequested = false;
+  const partial = () => !!buffered.length || !!remaining || line !== undefined;
+  const boundary = () => {
+    if (flushRequested) {
+      flushRequested = false;
+      flush();
+    }
+  };
   return {
-    get partial() {
-      return !!buffered.length || !!remaining || line !== undefined;
+    requestFlush() {
+      flushRequested = true;
+      if (!partial()) {
+        boundary();
+      }
+    },
+    end() {
+      if (partial()) {
+        throw new Error('Truncated Flight record');
+      }
+      boundary();
     },
     push(chunk: Uint8Array) {
       let input = chunk;
@@ -69,7 +87,11 @@ function forwardFlightRecords(
                   body.set(part, position);
                   position += part.length;
                 }
-                if (!visit(line.id, decoder.decode(body.subarray(0, -1)))) {
+                if (
+                  consumeMarker(line.id, decoder.decode(body.subarray(0, -1)))
+                ) {
+                  flushRequested = true;
+                } else {
                   emit(line.header);
                   line.parts.forEach(emit);
                 }
@@ -120,12 +142,14 @@ function forwardFlightRecords(
             return;
           }
           if (
-            body.length > markerLength ||
-            !visit(
+            body.length <= markerLength &&
+            consumeMarker(
               decoder.decode(input.subarray(offset, colon)),
               decoder.decode(body),
             )
           ) {
+            flushRequested = true;
+          } else {
             emit(input.subarray(offset, newline + 1));
           }
           offset = newline + 1;
@@ -153,7 +177,7 @@ export function renderWithWeakPromises(
     let entry = entries.get(state);
     if (!entry) {
       const marker = 'waku-weak-' + crypto.randomUUID();
-      entry = { state, placeholder: Promise.resolve(marker) };
+      entry = { placeholder: Promise.resolve(marker) };
       entries.set(state, entry);
       markers.set(JSON.stringify(marker), entry);
       markerLength = Math.max(markerLength, JSON.stringify(marker).length);
@@ -193,7 +217,7 @@ export function renderWithWeakPromises(
     void reader.cancel(error).catch(() => {});
   };
   const flush = (complete = false) => {
-    if (ended || records.partial) {
+    if (ended) {
       return;
     }
     for (const [state, entry] of entries) {
@@ -229,7 +253,7 @@ export function renderWithWeakPromises(
         for (const state of entries.keys()) {
           state.subscribe(() => {
             try {
-              flush();
+              records.requestFlush();
             } catch (error) {
               fail(error);
             }
@@ -250,9 +274,7 @@ export function renderWithWeakPromises(
               return;
             }
             if (part.done) {
-              if (records.partial) {
-                throw new Error('Truncated Flight record');
-              }
+              records.end();
               finish();
               flush(true);
               ended = true;
