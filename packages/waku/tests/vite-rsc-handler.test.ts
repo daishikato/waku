@@ -27,12 +27,15 @@ vi.mock('virtual:vite-rsc-waku/config', async () => {
 vi.mock('virtual:vite-rsc-waku/not-found', () => ({ default: 'Not Found' }));
 
 type Runtime = Parameters<Parameters<typeof createServerEntryAdapter>[0]>[0];
-const runtime = (handleRequest: Handlers['handleRequest']) => {
+const runtime = (
+  handleRequest: Handlers['handleRequest'],
+  handleBuild: Handlers['handleBuild'] = async () => {},
+) => {
   let result!: Runtime;
   createServerEntryAdapter((args) => {
     result = args;
     return { fetch: async () => new Response(), build: async () => {} };
-  })({ handleRequest, handleBuild: async () => {} });
+  })({ handleRequest, handleBuild });
   return result;
 };
 
@@ -101,3 +104,49 @@ test('only cancellation has a framework-supplied Flight digest', async () => {
   ).toBeUndefined();
   expect(log).toHaveBeenCalledOnce();
 });
+
+test.each([false, true])(
+  'build collects only application errors (application failure: %s)',
+  async (fail) => {
+    const applicationError = new Error('application error');
+    mocks.render.mockImplementationOnce((_data, options) => {
+      const { onError } = options as {
+        onError: (error: unknown) => string | undefined;
+      };
+      try {
+        cancelRender();
+      } catch (error) {
+        expect(onError(error)).toBe('WAKU_CANCEL_RENDER');
+      }
+      expect(
+        onError(
+          Object.assign(new Error('Flight error'), {
+            digest: 'WAKU_CANCEL_RENDER',
+          }),
+        ),
+      ).toBe('WAKU_CANCEL_RENDER');
+      if (fail) {
+        expect(onError(applicationError)).toBeUndefined();
+      }
+      return new ReadableStream({ start: (controller) => controller.close() });
+    });
+    const { processBuild } = runtime(
+      async () => null,
+      async ({ renderRsc }) => {
+        await renderRsc({});
+      },
+    );
+    const build = processBuild({
+      emitFile: vi.fn(),
+      unstable_registerPrunableFile: vi.fn(),
+    });
+    if (fail) {
+      await expect(build).rejects.toMatchObject({
+        name: 'AggregateError',
+        errors: [applicationError],
+      });
+    } else {
+      await expect(build).resolves.toBeUndefined();
+    }
+  },
+);
