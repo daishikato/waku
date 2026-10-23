@@ -1,6 +1,6 @@
 // eslint-disable-next-line no-restricted-imports -- Discarded responses use Minimal's internal stream cancellation.
 import { unstable_cancelRenderStream as cancelRenderStream } from 'waku/internals';
-import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from 'waku/minimal/server';
+import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/server';
 import type {
   Unstable_HandleRequest as HandleRequest,
   Unstable_RenderRsc as RenderRsc,
@@ -217,7 +217,7 @@ export const createRequestHandler = ({
         setRerender(rerender);
         try {
           const value = await fn().catch((error: unknown) => {
-            if (!getDigestIfRenderCancellation(error)) {
+            if (!isRenderCancellation(error)) {
               throw error;
             }
           });
@@ -253,7 +253,7 @@ export const createRequestHandler = ({
             requestElementCache,
           );
         } catch (e) {
-          if (getDigestIfRenderCancellation(e)) {
+          if (isRenderCancellation(e)) {
             return renderCancelledRequest();
           }
           throw e;
@@ -301,7 +301,7 @@ export const createRequestHandler = ({
           pathnameToRoutePath(pathname),
           query,
         ).catch((error) => {
-          if (!getDigestIfRenderCancellation(error)) {
+          if (!isRenderCancellation(error)) {
             throw error;
           }
           return null;
@@ -315,7 +315,7 @@ export const createRequestHandler = ({
           url.pathname = pathname;
           const apiReq = new Request(url, req);
           const response = await resolved(apiReq).catch((error: unknown) => {
-            if (!getDigestIfRenderCancellation(error)) {
+            if (!isRenderCancellation(error)) {
               throw error;
             }
             return new Response(null);
@@ -410,7 +410,7 @@ export const createRequestHandler = ({
             return await renderPage(pathname, query, 200, resolved);
           }
         } catch (e) {
-          if (!getDigestIfRenderCancellation(e)) {
+          if (!isRenderCancellation(e)) {
             throw e;
           }
           const redirect = redirectResponse();

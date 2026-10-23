@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Unstable_ElementSource as ElementSource } from 'waku/minimal/server';
-import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from 'waku/minimal/server';
+import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/server';
 import { deserializeRsc, serializeRsc } from 'waku/server';
 import type { RouteIntentData } from '../isomorphic-utils/router-protocol.js';
 import { captureRouteIntent, getRouteIntent } from './request-store.js';
@@ -56,7 +56,7 @@ export const createElementCache = (
         try {
           element = await render();
         } catch (error) {
-          if (!getDigestIfRenderCancellation(error)) {
+          if (!isRenderCancellation(error)) {
             throw error;
           }
           element = null;

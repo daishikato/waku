@@ -2,7 +2,7 @@ import type { ReactFormState } from 'react-dom/client';
 import type { Config } from '../../config.js';
 import type { Unstable_HandleRequest as HandleRequest } from '../types.js';
 import { ETAGS_HEADER, parseClientEtags } from '../utils-isomorphic/etags.js';
-import { getDigestIfRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
+import { isRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
 import { parseRequestUrl } from './request-url.js';
 
 type HandleRequestInput = Parameters<HandleRequest>[0];
@@ -14,7 +14,7 @@ const invokeServerAction = async (
   try {
     return await action(...args);
   } catch (error) {
-    if (!getDigestIfRenderCancellation(error)) {
+    if (!isRenderCancellation(error)) {
       throw error;
     }
   }

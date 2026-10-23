@@ -1,6 +1,6 @@
 import { Component } from 'react';
 import type { ReactNode } from 'react';
-import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from 'waku/minimal/client';
+import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/client';
 
 function renderError(message: string) {
   return (
@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<
     this.state = {};
   }
   static getDerivedStateFromError(error: unknown) {
-    if (getDigestIfRenderCancellation(error)) {
+    if (isRenderCancellation(error)) {
       throw error;
     }
     return { error };

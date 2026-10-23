@@ -10,6 +10,6 @@ export {
   useElementsPromise_UNSTABLE,
   useMergeElements_UNSTABLE,
   unstable_combineElements,
-  unstable_getDigestIfRenderCancellation,
+  unstable_isRenderCancellation,
   unstable_isImmutableElement,
 } from './client-runtime.js';

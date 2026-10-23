@@ -2,17 +2,19 @@ const cancellation = Symbol('waku.render-cancellation');
 
 const CANCEL_RENDER_DIGEST = 'WAKU_CANCEL_RENDER';
 
-/** Returns the Flight digest for a local or decoded render cancellation. */
-export const getDigestIfRenderCancellation = (
-  error: unknown,
-): string | undefined =>
+/** Identifies a local or Flight-decoded render cancellation. */
+export const isRenderCancellation = (error: unknown): boolean =>
   error === cancellation ||
   (typeof error === 'object' &&
     error !== null &&
     'digest' in error &&
-    error.digest === CANCEL_RENDER_DIGEST)
-    ? CANCEL_RENDER_DIGEST
-    : undefined;
+    error.digest === CANCEL_RENDER_DIGEST);
+
+/** Returns the Flight digest for a local or decoded render cancellation. */
+export const getDigestIfRenderCancellation = (
+  error: unknown,
+): string | undefined =>
+  isRenderCancellation(error) ? CANCEL_RENDER_DIGEST : undefined;
 
 /**
  * Stops the current server component or function by throwing a cancellation

@@ -540,4 +540,4 @@ export const INTERNAL_ServerRoot = ({
   </RootStoreContext>
 );
 
-export { getDigestIfRenderCancellation as unstable_getDigestIfRenderCancellation } from '../lib/utils-isomorphic/render-cancellation.js';
+export { isRenderCancellation as unstable_isRenderCancellation } from '../lib/utils-isomorphic/render-cancellation.js';
