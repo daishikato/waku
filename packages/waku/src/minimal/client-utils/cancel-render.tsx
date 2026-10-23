@@ -1,6 +1,6 @@
 import { Component } from 'react';
 import type { ReactNode } from 'react';
-import { getDigestIfRenderCancellation } from '../../lib/utils-isomorphic/render-cancellation.js';
+import { isRenderCancellation } from '../../lib/utils-isomorphic/render-cancellation.js';
 
 export class CancelRenderBoundary extends Component<
   { element: unknown; children: ReactNode },
@@ -16,7 +16,7 @@ export class CancelRenderBoundary extends Component<
   }
 
   static getDerivedStateFromError(error: unknown) {
-    if (!getDigestIfRenderCancellation(error)) {
+    if (!isRenderCancellation(error)) {
       throw error;
     }
     return { cancelled: true };

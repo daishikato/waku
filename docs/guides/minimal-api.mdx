@@ -36,8 +36,8 @@ The Minimal API consists of server handler contracts and client rendering primit
 | `waku/minimal/server` | `Unstable_Handlers`                                                                          | Defining `handleRequest` and `handleBuild` for an adapter.            |
 | `waku/minimal/server` | `Unstable_HandleRequest`, `Unstable_HandleBuild`                                             | Typing individual handlers.                                           |
 | `waku/minimal/server` | `Unstable_RenderRsc`, `Unstable_RenderHtml`, `Unstable_RenderHtmlFallback`, `Unstable_Etags` | Typing rendering utilities and validators.                            |
-| `waku/minimal/server` | `unstable_cancelRender`, `unstable_getDigestIfRenderCancellation`                            | Stopping a render and recognizing cancellation.                       |
-| `waku/minimal/client` | `unstable_getDigestIfRenderCancellation`                                                     | Rethrowing cancellation in custom boundaries.                         |
+| `waku/minimal/server` | `unstable_cancelRender`, `unstable_isRenderCancellation`                                     | Stopping a render and recognizing cancellation.                       |
+| `waku/minimal/client` | `unstable_isRenderCancellation`                                                              | Rethrowing cancellation in custom boundaries.                         |
 | `waku/minimal/client` | `Root_UNSTABLE`                                                                              | Installing the minimal client runtime.                                |
 | `waku/minimal/client` | `Slot_UNSTABLE`                                                                              | Rendering a server element by RSC ID.                                 |
 | `waku/minimal/client` | `Children_UNSTABLE`                                                                          | Placing client-side `Slot` children inside a server-rendered element. |
@@ -375,9 +375,9 @@ cancelRender();
 Sibling components may continue rendering. On the client, the cancelled Slot
 renders nothing; during SSR, React uses the nearest Suspense fallback or falls
 back to client rendering. Catch blocks and custom error boundaries must rethrow
-cancellation. `unstable_getDigestIfRenderCancellation(error)` from either Minimal
-entry point returns a digest for cancellation, or `undefined` for other errors.
-Renderers can also return this digest from React's `onError` callback.
+cancellation. `unstable_isRenderCancellation(error)` from either Minimal entry
+point returns whether an error is a render cancellation. Digest handling remains
+internal to the renderer.
 
 Routers can transport navigation data independently from cancellation. Waku
 Router provides `requestRedirect` and `requestNotFound` for this; see
