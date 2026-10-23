@@ -2,8 +2,10 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { type Unstable_HandleRequest as HandleRequest } from '../src/minimal/server.js';
 import { unstable_createRouteHref } from '../src/router/base-types.js';
+import { getRscPath } from '../src/router/define-router-utils/request-store.js';
 import {
   getRequest,
+  requestRedirect,
   unstable_defineRouter,
   unstable_notFound,
   unstable_redirect,
@@ -706,6 +708,66 @@ describe('defineRouter route resolver', () => {
     );
     expect(mutableRender).toHaveBeenCalledTimes(1);
   });
+
+  it.each([undefined, 'shared-route'])(
+    'builds immutable route cache key %s in source order with route metadata and separate intents',
+    async (cacheKey) => {
+      const rendered: [string, string | undefined][] = [];
+      const rootRender = vi.fn(() => {
+        rendered.push(['root', getRscPath()]);
+        requestRedirect('/root-intent');
+        return 'root';
+      });
+      const routeRender = vi.fn(() => {
+        rendered.push(['route', getRscPath()]);
+        requestRedirect('/route-intent');
+        return 'route';
+      });
+      const router = unstable_defineRouter({
+        resolve: async () => ({
+          elements: {
+            root: { immutable: true, render: rootRender },
+            route: {
+              immutable: true,
+              ...(cacheKey === undefined ? {} : { cacheKey }),
+              render: routeRender,
+            },
+          },
+        }),
+        getBuildPaths: async () => ['/built'],
+        getHas404: async () => false,
+      });
+      const metadata = new Map<string, string>();
+      const utils = makeUtils();
+      await router.handleBuild({
+        ...utils,
+        rscPath2pathname: (path) => 'payload/' + path,
+        generateFile: vi.fn(),
+        generateDefaultHtml: vi.fn(),
+        saveBuildMetadata: async (key, value) => {
+          metadata.set(key, value);
+        },
+        unstable_registerPrunableFile: vi.fn(),
+      });
+      expect(rootRender).toHaveBeenCalledOnce();
+      expect(routeRender).toHaveBeenCalledOnce();
+      expect(rendered).toEqual([
+        ['root', encodeRoutePath('/built')],
+        ['route', encodeRoutePath('/built')],
+      ]);
+      const elements = utils.renderRsc.mock.calls[0]![0];
+      expect(JSON.parse((await elements[INTENT_ID]) as string)).toEqual({
+        status: 307,
+        location: '/root-intent',
+      });
+      const cached = JSON.parse(metadata.get('defineRouter:cachedElements')!);
+      const routeCacheId = cacheKey ? 'key/' + cacheKey : 'slot/route:/built';
+      expect(cached[routeCacheId]).toEqual({
+        data: btoa(JSON.stringify('route')),
+        intent: { status: 307, location: '/route-intent' },
+      });
+    },
+  );
 
   it('emits independently resolved immutable elements without route build paths', async () => {
     const id = 'slice:folder/fragment';
