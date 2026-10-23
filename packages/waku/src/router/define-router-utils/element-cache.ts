@@ -76,12 +76,16 @@ export const cacheElementSource = (
   source: ElementSource,
   cacheId: CacheId,
   cache: ElementCache,
+  populate = true,
 ): ElementSource =>
   source.immutable
     ? {
         ...source,
         render: async () => {
           if (!cache.has(cacheId)) {
+            if (!populate) {
+              return source.render();
+            }
             await cache.set(cacheId, source.render);
           }
           return cache.get(cacheId);

@@ -13,11 +13,7 @@ import {
 } from '../isomorphic-utils/router-protocol.js';
 import { ROUTER_METADATA } from './build-metadata.js';
 import { getRouterPrefetchCode } from './client-code.js';
-import {
-  cacheElementSource,
-  createElementCache,
-  getElementCacheId,
-} from './element-cache.js';
+import { createElementCache, getElementCacheId } from './element-cache.js';
 import type { SerializedElement } from './element-cache.js';
 import { getRouteIntent } from './request-store.js';
 import { validateRouteElementIds } from './route-entries.js';
@@ -141,21 +137,8 @@ export const createBuildHandler =
             {},
             cache,
             {
-              ...resolved,
-              elements: {
-                ...resolved.elements,
-                route:
-                  resolved.elements.route.cacheKey !== undefined
-                    ? resolved.elements.route
-                    : cacheElementSource(
-                        resolved.elements.route,
-                        getElementCacheId(
-                          getRouteSlotId(routePath),
-                          resolved.elements.route,
-                        ),
-                        cache,
-                      ),
-              },
+              route: resolved,
+              populateRouteCache: true,
             },
           );
           if (!entries) {

@@ -127,9 +127,11 @@ export const createRequestHandler = ({
           input.etags ?? {},
           requestElementCache,
           {
-            elements: {
-              root: { render: () => null },
-              route: { render: () => null },
+            route: {
+              elements: {
+                root: { render: () => null },
+                route: { render: () => null },
+              },
             },
           },
         );
@@ -345,7 +347,7 @@ export const createRequestHandler = ({
             rscParams,
             clientEtags,
             requestElementCache,
-            resolvedRoute,
+            { route: resolvedRoute },
           );
           if (!entries) {
             return null;

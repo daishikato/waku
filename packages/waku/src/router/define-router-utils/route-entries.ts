@@ -83,7 +83,10 @@ export const createRouteEntries = (
     rscParams: unknown,
     clientEtags: Etags,
     cache: ElementCache,
-    resolvedRoute?: Route,
+    {
+      route: resolvedRoute,
+      populateRouteCache = false,
+    }: { route?: Route | undefined; populateRouteCache?: boolean } = {},
   ) => {
     setRscPath(rscPath);
     setRscParams(rscParams);
@@ -96,24 +99,21 @@ export const createRouteEntries = (
     validateRouteElementIds(resolved.elements);
     const { route, ...sources } = resolved.elements;
     const routeId = getRouteSlotId(pathname);
-    sources[routeId] =
-      route.cacheKey !== undefined
-        ? cacheElementSource(route, getElementCacheId(routeId, route), cache)
-        : route.immutable
-          ? {
-              ...route,
-              render: () =>
-                cache.get(getElementCacheId(routeId, route)) ?? route.render(),
-            }
-          : route;
+    sources[routeId] = route;
     const entries = await buildElements(
       clientEtags,
       Object.fromEntries(
         Object.entries(sources).map(([id, source]) => [
           id,
-          id === routeId
-            ? source
-            : cacheElementSource(source, getElementCacheId(id, source), cache),
+          cacheElementSource(
+            source,
+            getElementCacheId(id, source),
+            cache,
+            // Runtime paths may be unbounded; only builds and explicit keys populate the route cache.
+            id !== routeId ||
+              source.cacheKey !== undefined ||
+              populateRouteCache,
+          ),
         ]),
       ),
     );
