@@ -65,6 +65,7 @@ test.describe(`ssr-redirect`, () => {
   });
 
   test('discarding a redirect response with pending rendering is quiet', async ({
+    page,
     request,
   }) => {
     const outputStart = serverOutput.length;
@@ -74,6 +75,9 @@ test.describe(`ssr-redirect`, () => {
     );
     expect(response.status()).toBe(307);
     expect(response.headers().location).toBe('/destination');
+    await page.goto(`http://127.0.0.1:${port}/intent-pending`);
+    await waitForHydration(page);
+    await expect(page.getByRole('heading')).toHaveText('Destination Page');
     expect(serverOutput.slice(outputStart).join('')).not.toContain(
       'Error during rendering',
     );
