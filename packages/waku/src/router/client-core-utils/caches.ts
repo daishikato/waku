@@ -45,7 +45,6 @@ export const createRscParams = (query: string): URLSearchParams =>
 
 const createRouterCache = (fetchRsc: FetchRsc) => {
   const manager = createPrefetchManager();
-  const staticPathSet = new Set<string>();
   const staticRouteIntents = new Map<
     string,
     Promise<string | undefined> | undefined
@@ -55,7 +54,8 @@ const createRouterCache = (fetchRsc: FetchRsc) => {
     manager.getElements(encodeRoutePath(route.path));
 
   const canReuseStaticRoute = (route: RouteProps, elements: Elements) =>
-    staticPathSet.has(route.path) && getRouteSlotId(route.path) in elements;
+    staticRouteIntents.has(route.path) &&
+    getRouteSlotId(route.path) in elements;
 
   return {
     fetchRsc,
@@ -163,7 +163,6 @@ const createRouterCache = (fetchRsc: FetchRsc) => {
     learnStaticFromElements: (elements: Record<string, unknown>): void => {
       const route = getRouteFromElements(elements);
       if (route && isStaticFromElements(elements)) {
-        staticPathSet.add(route.path);
         // Keep route intent with its route, just like the immutable slot.
         // Reusing that slot must not inherit the page we navigated away from.
         staticRouteIntents.set(
@@ -174,7 +173,6 @@ const createRouterCache = (fetchRsc: FetchRsc) => {
     },
     clearCaches: (): void => {
       manager.clear();
-      staticPathSet.clear();
       staticRouteIntents.clear();
     },
   };
