@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { cancelRender } from '../src/lib/utils-isomorphic/render-cancellation.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -77,9 +78,11 @@ describe('waku/server RSC helpers', () => {
         onError: (e: unknown) => string | undefined;
       };
 
-      expect(options.onError(Symbol.for('waku.render-cancellation'))).toBe(
-        'WAKU_CANCEL_RENDER',
-      );
+      try {
+        cancelRender();
+      } catch (error) {
+        expect(options.onError(error)).toBe('WAKU_CANCEL_RENDER');
+      }
       expect(consoleError).not.toHaveBeenCalled();
 
       expect(options.onError(new Error('boom'))).toBeUndefined();

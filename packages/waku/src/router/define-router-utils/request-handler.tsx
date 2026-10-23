@@ -1,6 +1,6 @@
-// eslint-disable-next-line no-restricted-imports -- Discarded responses use Minimal's cancellation signal.
-import { unstable_renderCancellation as renderCancellation } from 'waku/internals';
-import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/server';
+// eslint-disable-next-line no-restricted-imports -- Discarded responses use Minimal's internal stream cancellation.
+import { unstable_cancelRenderStream as cancelRenderStream } from 'waku/internals';
+import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from 'waku/minimal/server';
 import type {
   Unstable_HandleRequest as HandleRequest,
   Unstable_RenderRsc as RenderRsc,
@@ -217,7 +217,7 @@ export const createRequestHandler = ({
         setRerender(rerender);
         try {
           const value = await fn().catch((error: unknown) => {
-            if (!isRenderCancellation(error)) {
+            if (!getDigestIfRenderCancellation(error)) {
               throw error;
             }
           });
@@ -253,7 +253,7 @@ export const createRequestHandler = ({
             requestElementCache,
           );
         } catch (e) {
-          if (isRenderCancellation(e)) {
+          if (getDigestIfRenderCancellation(e)) {
             return renderCancelledRequest();
           }
           throw e;
@@ -301,7 +301,7 @@ export const createRequestHandler = ({
           pathnameToRoutePath(pathname),
           query,
         ).catch((error) => {
-          if (!isRenderCancellation(error)) {
+          if (!getDigestIfRenderCancellation(error)) {
             throw error;
           }
           return null;
@@ -315,18 +315,18 @@ export const createRequestHandler = ({
           url.pathname = pathname;
           const apiReq = new Request(url, req);
           const response = await resolved(apiReq).catch((error: unknown) => {
-            if (!isRenderCancellation(error)) {
+            if (!getDigestIfRenderCancellation(error)) {
               throw error;
             }
             return new Response(null);
           });
           const redirect = redirectResponse();
           if (redirect) {
-            await response.body?.cancel(renderCancellation);
+            await cancelRenderStream(response.body);
             return redirect;
           }
           if (intent.value?.status === 404) {
-            await response.body?.cancel(renderCancellation);
+            await cancelRenderStream(response.body);
             return new Response('Not Found', { status: 404 });
           }
           return response;
@@ -383,11 +383,11 @@ export const createRequestHandler = ({
           const requested = intent.value;
           const redirect = redirectResponse();
           if (redirect) {
-            await response.body?.cancel(renderCancellation);
+            await cancelRenderStream(response.body);
             return redirect;
           }
           if (requested?.status === 404 && pathname !== '/404') {
-            await response.body?.cancel(renderCancellation);
+            await cancelRenderStream(response.body);
             return (await routeEntries.has404())
               ? renderPage('/404', query, 404)
               : createNotFoundResponse();
@@ -410,7 +410,7 @@ export const createRequestHandler = ({
             return await renderPage(pathname, query, 200, resolved);
           }
         } catch (e) {
-          if (!isRenderCancellation(e)) {
+          if (!getDigestIfRenderCancellation(e)) {
             throw e;
           }
           const redirect = redirectResponse();

@@ -1,9 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import type { Unstable_Handlers as Handlers } from '../src/lib/types.js';
-import {
-  CANCEL_RENDER_DIGEST,
-  renderCancellation,
-} from '../src/lib/utils-isomorphic/render-cancellation.js';
+import { cancelRender } from '../src/lib/utils-isomorphic/render-cancellation.js';
 import { createServerEntryAdapter } from '../src/lib/vite-rsc/handler.js';
 
 const mocks = vi.hoisted(() => ({
@@ -93,7 +90,11 @@ test('only cancellation has a framework-supplied Flight digest', async () => {
   const options = mocks.render.mock.calls.at(-1)![1] as {
     onError: (error: unknown) => string | undefined;
   };
-  expect(options.onError(renderCancellation)).toBe(CANCEL_RENDER_DIGEST);
+  try {
+    cancelRender();
+  } catch (error) {
+    expect(options.onError(error)).toBe('WAKU_CANCEL_RENDER');
+  }
   expect(log).not.toHaveBeenCalled();
   expect(
     options.onError(Object.assign(new Error('boom'), { digest: 'arbitrary' })),

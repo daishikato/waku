@@ -21,7 +21,6 @@ import {
   vi,
 } from 'vitest';
 import { ETAGS_ID } from '../src/lib/utils-isomorphic/etags.js';
-import { CANCEL_RENDER_DIGEST } from '../src/lib/utils-isomorphic/render-cancellation.js';
 import { unstable_callServerRsc } from '../src/minimal/client-runtime.js';
 import {
   clearInitialRscEntries,
@@ -125,7 +124,7 @@ afterEach(() => {
 describe('minimal/client fetch', () => {
   test('a cancelled Slot leaves siblings mounted and recovers when its element changes', async () => {
     const cancellation = Object.assign(new Error('Flight error'), {
-      digest: CANCEL_RENDER_DIGEST,
+      digest: 'WAKU_CANCEL_RENDER',
     });
     const Cancelled = () => {
       throw cancellation;

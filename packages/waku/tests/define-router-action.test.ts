@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { unstable_isRenderCancellation as isRenderCancellation } from '../src/minimal/server.js';
+import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from '../src/minimal/server.js';
 import { createConfiguredRouter } from '../src/router/create-pages-utils/router.js';
 import {
   getRouteIntent,
@@ -488,7 +488,7 @@ describe('unstable_redirect', () => {
       try {
         unstable_redirect(location, 303);
       } catch (error) {
-        expect(isRenderCancellation(error)).toBe(true);
+        expect(getDigestIfRenderCancellation(error)).toBe('WAKU_CANCEL_RENDER');
         return getRouteIntent().value;
       }
     });
