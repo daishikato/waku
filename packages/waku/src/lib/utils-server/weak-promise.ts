@@ -13,12 +13,13 @@ export function createWeakPromise<T extends string = string>(): {
   promise: PromiseLike<T | undefined>;
   resolve: (value: T) => void;
 } {
-  let settled = false;
   let value: T | undefined;
   const listeners = new Set<(value: T) => void>();
   const promise = {
     get status() {
-      return settled ? ('fulfilled' as const) : ('pending_weak' as const);
+      return value !== undefined
+        ? ('fulfilled' as const)
+        : ('pending_weak' as const);
     },
     get value() {
       return value;
@@ -39,8 +40,8 @@ export function createWeakPromise<T extends string = string>(): {
             reject(error);
           }
         };
-        if (settled) {
-          fulfill(value as T);
+        if (value !== undefined) {
+          fulfill(value);
         } else {
           listeners.add(fulfill);
         }
@@ -50,10 +51,9 @@ export function createWeakPromise<T extends string = string>(): {
   return {
     promise,
     resolve(next) {
-      if (settled) {
+      if (value !== undefined) {
         return;
       }
-      settled = true;
       value = next;
       for (const listener of listeners) {
         listener(next);
