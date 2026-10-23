@@ -64,6 +64,21 @@ test.describe(`ssr-redirect`, () => {
     expect(response.headers().location).toBe('/destination');
   });
 
+  test('discarding a redirect response with pending rendering is quiet', async ({
+    request,
+  }) => {
+    const outputStart = serverOutput.length;
+    const response = await request.get(
+      `http://127.0.0.1:${port}/intent-pending`,
+      { maxRedirects: 0 },
+    );
+    expect(response.status()).toBe(307);
+    expect(response.headers().location).toBe('/destination');
+    expect(serverOutput.slice(outputStart).join('')).not.toContain(
+      'Error during rendering',
+    );
+  });
+
   test('static normal-return redirect follows after hydration', async ({
     page,
   }) => {

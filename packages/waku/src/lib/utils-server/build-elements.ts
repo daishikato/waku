@@ -1,6 +1,6 @@
 import { IMMUTABLE_ETAG, isValidEtag } from '../utils-isomorphic/etags.js';
 import type { Etags } from '../utils-isomorphic/etags.js';
-import { isRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
+import { getDigestIfRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
 
 /** A slot renderer and its validator; immutable slots are reusable indefinitely. */
 export type ElementSource = {
@@ -38,7 +38,7 @@ export const buildElements = async (
       try {
         elements[slotId] = await elementSource.render();
       } catch (error) {
-        if (!isRenderCancellation(error)) {
+        if (!getDigestIfRenderCancellation(error)) {
           throw error;
         }
         elements[slotId] = null;

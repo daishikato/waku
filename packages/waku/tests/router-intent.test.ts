@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { unstable_isRenderCancellation as isRenderCancellation } from '../src/minimal/server.js';
+import { unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation } from '../src/minimal/server.js';
 import { createElementCache } from '../src/router/define-router-utils/element-cache.js';
 import {
   getRouteIntent,
@@ -129,7 +129,9 @@ describe('intent metadata', () => {
         } catch (error) {
           cancellation = error;
         }
-        expect(isRenderCancellation(cancellation)).toBe(true);
+        expect(getDigestIfRenderCancellation(cancellation)).toBe(
+          'WAKU_CANCEL_RENDER',
+        );
         expect(typeof cancellation).toBe('symbol');
         expect(JSON.parse((await getRouteIntent().promise)!)).toEqual(expected);
       });

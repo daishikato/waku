@@ -1,6 +1,6 @@
 import {
   unstable_buildElements as buildElements,
-  unstable_isRenderCancellation as isRenderCancellation,
+  unstable_getDigestIfRenderCancellation as getDigestIfRenderCancellation,
 } from 'waku/minimal/server';
 import type {
   Unstable_ElementSource as ElementSource,
@@ -71,7 +71,7 @@ export const createRouteEntries = (
             resolve('/404', ''),
           ).then((result) => result !== null && typeof result !== 'function')
     ).catch((error) => {
-      if (isRenderCancellation(error)) {
+      if (getDigestIfRenderCancellation(error)) {
         return false;
       }
       cachedHas404 = undefined;
