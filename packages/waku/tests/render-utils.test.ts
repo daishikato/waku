@@ -58,21 +58,6 @@ describe('createRenderUtils', () => {
     expect(renderToReadableStream).not.toHaveBeenCalled();
   });
 
-  test('carries a document location', async () => {
-    const { renderToReadableStream, renderUtils } = makeRenderUtils();
-
-    await renderUtils.renderRsc(
-      {},
-      { documentLocation: 'https://other.example/x' },
-    );
-
-    expect(renderToReadableStream).toHaveBeenCalledWith(
-      { _location: 'https://other.example/x' },
-      expect.anything(),
-      expect.anything(),
-    );
-  });
-
   test('adds server function value with the renderRsc value option', async () => {
     const { renderToReadableStream, renderUtils } = makeRenderUtils();
 

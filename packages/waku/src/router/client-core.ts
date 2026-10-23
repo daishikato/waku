@@ -32,9 +32,7 @@ export type { RouteIntentData as Unstable_RouteIntentData } from './isomorphic-u
 
 export {
   MAX_FOLLOWS_PER_NAVIGATION as unstable_MAX_FOLLOWS_PER_NAVIGATION,
-  decideFollow as unstable_decideFollow,
   decideRouteIntent as unstable_decideRouteIntent,
-  isFollowable as unstable_isFollowable,
 } from './client-core-utils/route-follow.js';
 export type { FollowDecision as Unstable_FollowDecision } from './client-core-utils/route-follow.js';
 

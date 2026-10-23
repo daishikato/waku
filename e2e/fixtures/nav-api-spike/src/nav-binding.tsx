@@ -30,14 +30,12 @@ import {
   type Unstable_RouterHost as RouterHost,
   RouterHostContext_UNSTABLE as RouterHostContext,
   unstable_buildMergePatch as buildMergePatch,
-  unstable_decideFollow as decideFollow,
   unstable_decideRouteIntent as decideRouteIntent,
   unstable_encodeRoutePath as encodeRoutePath,
   unstable_getRouteFromElements as getRouteFromElements,
   unstable_getRouteSlotId as getRouteSlotId,
   unstable_getRouteUrl as getRouteUrl,
   unstable_has404FromElements as has404FromElements,
-  unstable_isFollowable as isFollowable,
   unstable_parseRoute as parseRoute,
   useActionRouting_UNSTABLE as useActionRouting,
   useInitialRoute_UNSTABLE as useInitialRoute,
@@ -79,11 +77,7 @@ const FollowRedirect = ({
   const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
     use(FollowHostContext)!;
   const href = decision.url.href;
-  // a second navigate() to the same href while intercept is in-flight hangs.
-  // Strict Mode remounts this effect at the same captured count; a later slot
-  // visit after a load-time hop does not. setFollows re-renders with
-  // follows+1 — still this dispatch — so the event reads follows without
-  // listing it as a dependency.
+  // Navigation API cannot start another intercept for the same in-flight href.
   const startFollow = useEffectEvent(() => {
     if (decision.type !== 'follow') {
       return;
@@ -215,63 +209,8 @@ class FollowFailure extends Component<
   }
 }
 
-// the fetch can succeed with the throwing page still in the payload.
-// path changes remount via key; query/hash follows clear the held error in
-// place — remounting on query would rebuild the page on every setSearch.
-// a hash-only slot redirect cannot be resolved (no refetch); decideFollow
-// must stop it as a loop after the address bar moves.
-class FollowBoundary extends Component<
-  {
-    routeKey: string;
-    route: RouteProps;
-    has404: boolean;
-    follows: number;
-    children: ReactNode;
-  },
-  { error: unknown | null; routeKey: string }
-> {
-  state: { error: unknown | null; routeKey: string } = {
-    error: null,
-    routeKey: this.props.routeKey,
-  };
-  static getDerivedStateFromError(error: unknown) {
-    return { error };
-  }
-  static getDerivedStateFromProps(
-    props: { routeKey: string },
-    state: { routeKey: string },
-  ) {
-    return props.routeKey !== state.routeKey
-      ? { error: null, routeKey: props.routeKey }
-      : null;
-  }
-  render() {
-    const { error } = this.state;
-    if (error !== null) {
-      if (!isFollowable(error)) {
-        throw error;
-      }
-      const { route, has404, follows } = this.props;
-      const decision = decideFollow(
-        error,
-        {
-          route,
-          url: getRouteUrl(route),
-          follows,
-        },
-        { has404, maxFollows: MAX_FOLLOWS_PER_NAVIGATION },
-      );
-      if (decision.type === 'stop' || decision.type === 'none') {
-        throw decision.type === 'stop' ? decision.error : error;
-      }
-      return <FollowRedirect decision={decision} source={error} />;
-    }
-    return this.props.children;
-  }
-}
-
 const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
-  const { ownsNavigation, follows, setFollows, lastFollowRef, runRef } =
+  const { ownsNavigation, setFollows, lastFollowRef, runRef } =
     use(FollowHostContext)!;
   const elements = use(useElementsPromise());
   const mergeElements = useMergeElements();
@@ -339,7 +278,6 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     const outcome = await cache.load(next, {
       signal,
       has404,
-      settled,
       base,
       follows: followCount,
       ...(url ? { url } : {}),
@@ -347,20 +285,13 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     if (outcome.type === 'aborted') {
       return;
     }
-    if (outcome.type === 'external') {
-      window.location.replace(outcome.url.href);
-      throw outcome.error;
-    }
     if (outcome.type === 'failed') {
       throw outcome.error;
     }
-    // slot follows already incremented the host; a later slot must resume
-    // from load-time hops too or the mixed chain under-counts
     if (outcome.type === 'reused' || outcome.type === 'loaded') {
       setFollows(outcome.follows);
     }
-    // intercept already committed the requested URL; a load-time follow
-    // that landed elsewhere still has to rewrite this entry
+    // The intercept committed the requested URL before the payload arrived.
     if (
       ownsNavigation &&
       outcome.url.href !== window.location.href &&
@@ -461,17 +392,7 @@ const NavBinding = ({ fallbackRoute }: { fallbackRoute: RouteProps }) => {
     [route, navigate],
   );
 
-  const routeSlot = (
-    <FollowBoundary
-      key={route.path}
-      routeKey={`${route.path}\0${route.query}\0${route.hash}`}
-      route={route}
-      has404={has404}
-      follows={follows}
-    >
-      <Slot id={getRouteSlotId(route.path)} />
-    </FollowBoundary>
-  );
+  const routeSlot = <Slot id={getRouteSlotId(route.path)} />;
 
   return (
     <RouterHostContext value={host}>

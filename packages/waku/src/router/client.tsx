@@ -20,7 +20,7 @@ import {
 import { useNavigation } from './client-utils/navigation.js';
 import {
   MissingRouteHandler,
-  RenderErrorHandler,
+  RenderError,
 } from './client-utils/render-error.js';
 import { RouteIntent } from './client-utils/route-intent.js';
 import {
@@ -173,10 +173,6 @@ const notAvailableInServer = (name: string) => () => {
   throw new Error(`${name} is not in the server`);
 };
 
-const ThrowError = ({ error }: { error: unknown }) => {
-  throw error;
-};
-
 const InnerRouter = ({
   fallbackRoute,
   routeInterceptor,
@@ -211,17 +207,9 @@ const InnerRouter = ({
   );
 
   const routeElement = navigationError ? (
-    <ThrowError error={navigationError.error} />
+    <RenderError error={navigationError.error} />
   ) : (
     <Slot id={getRouteSlotId(currentRoute.path)} />
-  );
-  // TODO a followable error thrown by the root layout, or by an action it
-  // calls, is not followed. The layout's own ErrorBoundary catches it first,
-  // so wrapping this slot in another handler does not reach it
-  const rootElement = (
-    <Slot id="root">
-      <RenderErrorHandler>{routeElement}</RenderErrorHandler>
-    </Slot>
   );
   return (
     <RouterContext
@@ -234,7 +222,7 @@ const InnerRouter = ({
     >
       <RouterHostContext value={host}>
         <RouteIntent />
-        {rootElement}
+        <Slot id="root">{routeElement}</Slot>
       </RouterHostContext>
     </RouterContext>
   );
@@ -279,7 +267,6 @@ export function Router({
 
 export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
   const routeElement = <Slot id={getRouteSlotId(route.path)} />;
-  const rootElement = <Slot id="root">{routeElement}</Slot>;
   return (
     <RouterContext
       value={{
@@ -294,7 +281,7 @@ export function INTERNAL_ServerRouter({ route }: { route: RouteProps }) {
         }}
       >
         <RouteIntent />
-        {rootElement}
+        <Slot id="root">{routeElement}</Slot>
       </RouterHostContext>
     </RouterContext>
   );

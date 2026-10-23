@@ -20,7 +20,6 @@ import {
   test,
   vi,
 } from 'vitest';
-import { getErrorInfo } from '../src/lib/utils-isomorphic/custom-errors.js';
 import { ETAGS_ID } from '../src/lib/utils-isomorphic/etags.js';
 import { CANCEL_RENDER_DIGEST } from '../src/lib/utils-isomorphic/render-cancellation.js';
 import { unstable_callServerRsc } from '../src/minimal/client-runtime.js';
@@ -385,7 +384,10 @@ describe('minimal/client transport failures', () => {
 
     // waku never reads Location, so a fetch enhancer using redirect: 'manual'
     // is not supported. Decided 2026-07-30; revisit with a real use case.
-    expect(getErrorInfo(error)).toEqual({ status: 307 });
+    expect(error).toMatchObject({
+      message: 'Temporary Redirect',
+      cause: { status: 307 },
+    });
   });
 
   test('a redirected response is decoded like any other', async () => {
@@ -399,14 +401,13 @@ describe('minimal/client transport failures', () => {
     });
   });
 
-  test('a network error is marked as such', async () => {
-    vi.stubGlobal('fetch', () =>
-      Promise.reject(new TypeError('Failed to fetch')),
-    );
+  test('a network error passes through unchanged', async () => {
+    const failure = new TypeError('Failed to fetch');
+    vi.stubGlobal('fetch', () => Promise.reject(failure));
 
     const error = await fetchRsc('R/next.txt').catch((e: unknown) => e);
 
-    expect(getErrorInfo(error)).toEqual({ unstable_networkError: true });
+    expect(error).toBe(failure);
     expect((error as Error).message).toBe('Failed to fetch');
   });
 
@@ -417,7 +418,6 @@ describe('minimal/client transport failures', () => {
     const aborted = await fetchRsc('R/next.txt').catch((e: unknown) => e);
 
     expect((aborted as Error).name).toBe('AbortError');
-    expect(getErrorInfo(aborted)).toBeNull();
 
     // an app's own failure (a fetch enhancer, an unserializable argument)
     // reaches the caller as it is
@@ -464,21 +464,6 @@ describe('minimal/client server actions', () => {
     expect(getDefaultRootStore()?.etags).toEqual({ App: 'v' });
 
     act(() => root.unmount());
-  });
-
-  test('a document location is reported as an error, not merged', async () => {
-    // minimal only tags it; deciding what a location means is the router's
-    mocks.createFromFetch.mockResolvedValueOnce({
-      _location: 'https://other.example/next',
-    });
-    stubFetch();
-
-    const error = await fetchRsc('R/next.txt').catch((e: unknown) => e);
-
-    expect(getErrorInfo(error)).toEqual({
-      location: 'https://other.example/next',
-      unstable_leave: true,
-    });
   });
 
   test('a server action returning elements throws when no Root is mounted', async () => {

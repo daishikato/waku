@@ -95,19 +95,6 @@ test.describe('nav-api-spike imports', () => {
     expect(src).toContain("info?.scroll === false ? { scroll: 'manual' } : {}");
   });
 
-  test('FollowBoundary remounts on path and resets on query', () => {
-    const bindingPath = fileURLToPath(
-      new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
-    );
-    const src = readFileSync(bindingPath, 'utf8');
-    expect(src).toContain('key={route.path}');
-    expect(src).toContain(
-      'routeKey={`${route.path}\\0${route.query}\\0${route.hash}`}',
-    );
-    expect(src).toContain('getDerivedStateFromProps');
-    expect(src).toContain('decideFollow');
-  });
-
   test('slot follow count is not module state', () => {
     const bindingPath = fileURLToPath(
       new URL('./fixtures/nav-api-spike/src/nav-binding.tsx', import.meta.url),
@@ -341,32 +328,7 @@ test.describe('nav-api-spike', () => {
     await expect(page.getByTestId('owning-follow-count')).toHaveText('0');
   });
 
-  test('a legacy load follow then a slot revisit is not skipped as a replay', async ({
-    page,
-  }) => {
-    await page.goto(`http://localhost:${port}/mix`);
-    await waitForHydration(page);
-    await expect(page.getByTestId('mix')).toHaveText('mix');
-    // derived from the follow contract, not from a prior run:
-    //   slot mix-a → /mix-b?mix=1 (1)
-    //   load: mix-b RSC is HTTP 404, so decideFollow hops to /404?mix=1 (2)
-    //   slot 404 → /mix-b?mix=1 (3)
-    //   load 404-follows to /404?mix=1 (4); path is already /404, so the
-    //   boundary does not remount and the chain stalls.
-    // omitting setFollows(outcome.follows) resumes the second slot from 1
-    // and leaves the count at 2. a 200 404-page for mix-b skips both load
-    // hops and also leaves it at 2.
-    await expect(
-      page.getByTestId('mix-host').getByTestId('follow-count'),
-    ).toHaveText('4');
-    await expect(
-      page.getByTestId('mix-host').getByTestId('follow-error'),
-    ).toHaveCount(0);
-  });
-
-  test('fresh same-query intents share the load follow budget', async ({
-    page,
-  }) => {
+  test('fresh same-query intents share the follow budget', async ({ page }) => {
     let mixBFetches = 0;
     page.on('request', (request) => {
       if (new URL(request.url()).pathname === '/RSC/R/mix-b.txt') {
@@ -384,14 +346,9 @@ test.describe('nav-api-spike', () => {
     expect(mixBFetches).toBe(10);
   });
 
-  test('a mixed slot and load follow chain stops at the follow limit', async ({
+  test('redirect and not-found intents share the follow limit', async ({
     page,
   }) => {
-    // mixcycle remounts FollowBoundary on each 404 slot throw; load hops
-    // to /404 in between. both share MAX_FOLLOWS_PER_NAVIGATION: 10 load
-    // hops (mix-b RSC) plus 10 slot hops hit 20. omitting
-    // setFollows(outcome.follows), slots still display 20 and mix-b is
-    // fetched ~20 times.
     test.setTimeout(60_000);
     let mixBFetches = 0;
     page.on('request', (request) => {

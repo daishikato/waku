@@ -12,10 +12,10 @@ import {
   useElementsPromise_UNSTABLE as useElementsPromise,
   useMergeElements_UNSTABLE as useMergeElements,
 } from '../src/minimal/client.js';
-import { unstable_createCustomError as createCustomError } from '../src/minimal/server.js';
 import * as loader from '../src/router/client-core-utils/load.js';
 import { ErrorBoundary, Router, useRouter } from '../src/router/client.js';
 import {
+  INTENT_ID,
   IS_ORIGIN_ID,
   IS_STATIC_ID,
   ROUTE_ID,
@@ -85,6 +85,7 @@ const payload = (path: string, body: ReactNode, id = 'a'): Elements => ({
     </>
   ),
   [ROUTE_ID]: [path, ''],
+  [INTENT_ID]: Promise.resolve(undefined),
   [IS_STATIC_ID]: false,
   [getRouteSlotId(path)]: body,
 });
@@ -192,7 +193,12 @@ test.each([false, true])(
     expect(scroll).toHaveBeenCalledTimes(1);
     await act(async () => {
       if (redirect) {
-        response.reject(createCustomError('moved', { location: '/three' }));
+        response.resolve({
+          [ROUTE_ID]: ['/two', ''],
+          [INTENT_ID]: Promise.resolve(
+            JSON.stringify({ status: 307, location: '/three' }),
+          ),
+        });
       } else {
         response.resolve({ [ROUTE_ID]: ['/two', ''], sidebar: 'response' });
       }
@@ -411,7 +417,7 @@ test('a failed replacement cannot reveal the superseded layout', async () => {
   expect(window.location.pathname).toBe('/three');
 });
 
-test.each(['external redirect', 'fetch failure'] as const)(
+test.each(['redirect intent', 'fetch failure'] as const)(
   'a superseded %s returned by load does not affect the pending navigation',
   async (failure) => {
     const push = vi.spyOn(window.history, 'pushState');
@@ -432,7 +438,15 @@ test.each(['external redirect', 'fetch failure'] as const)(
       );
     }
     const next = defer<Elements>();
-    mocks.queue.push({ _location: 'https://other.example/redirected' });
+    mocks.queue.push({
+      [ROUTE_ID]: ['/two', ''],
+      [INTENT_ID]: Promise.resolve(
+        JSON.stringify({
+          status: 307,
+          location: 'https://other.example/redirected',
+        }),
+      ),
+    });
     mocks.queue.push(next.promise);
     const load = loader.load;
     let outcomeType: string | undefined;
@@ -460,7 +474,7 @@ test.each(['external redirect', 'fetch failure'] as const)(
       await flush();
     });
     expect(outcomeType).toBe(
-      failure === 'external redirect' ? 'external' : 'failed',
+      failure === 'redirect intent' ? 'loaded' : 'failed',
     );
     expect(abortedAtResolution).toBe(false);
     expect(signal?.aborted).toBe(true);
@@ -483,7 +497,7 @@ test.each(['external redirect', 'fetch failure'] as const)(
   },
 );
 
-test('a successful navigation clears the previously committed not-found error', async () => {
+test('a successful navigation clears the previously committed not-found intent', async () => {
   mocks.queue.push(payload('/one', <p>page one</p>));
   const view = await mount(
     <Router initialRoute={{ path: '/one', query: '', hash: '' }} />,
@@ -498,8 +512,12 @@ test('a successful navigation clears the previously committed not-found error', 
     await flush();
   });
   await act(async () => {
-    missing.reject(createCustomError('missing', { status: 404 }));
-    await expect(failed).rejects.toThrow('missing');
+    missing.resolve({
+      [ROUTE_ID]: ['/missing', ''],
+      [getRouteSlotId('/missing')]: null,
+      [INTENT_ID]: Promise.resolve(JSON.stringify({ status: 404 })),
+    });
+    await failed;
     await flush();
   });
   expect(view.querySelector('h1')?.textContent).toBe('Not Found');

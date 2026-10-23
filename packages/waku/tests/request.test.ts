@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveConfig } from '../src/lib/utils-build/config.js';
-import { getErrorInfo } from '../src/lib/utils-isomorphic/custom-errors.js';
 import { ETAGS_HEADER } from '../src/lib/utils-isomorphic/etags.js';
 import { encodeFuncId } from '../src/lib/utils-isomorphic/rsc-path.js';
 import { getInput } from '../src/lib/utils-server/request.js';
@@ -19,7 +18,7 @@ const getStatus = async (promise: Promise<unknown>) => {
   try {
     await promise;
   } catch (e) {
-    return getErrorInfo(e)?.status;
+    return e instanceof Response ? e.status : undefined;
   }
 };
 

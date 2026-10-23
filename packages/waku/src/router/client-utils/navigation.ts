@@ -17,7 +17,6 @@ import { useRouterCache } from '../client-core-utils/caches.js';
 import { useHmrRefetch } from '../client-core-utils/hmr.js';
 import { useInitialRoute } from '../client-core-utils/initial-route.js';
 import { buildMergePatch } from '../client-core-utils/merge-patch.js';
-import { isFollowable } from '../client-core-utils/route-follow.js';
 import {
   getRouteUrl,
   isSameRoute,
@@ -96,7 +95,6 @@ export const useNavigation = (
 ): Navigation => {
   const cache = useRouterCache();
   const routeFallback = useInitialRoute(fallbackRoute);
-  const has404 = has404FromElements(elements);
   const initialElementsRef = useRef(elements);
   useEffect(() => {
     cache.learnStaticFromElements(initialElementsRef.current);
@@ -280,7 +278,6 @@ export const useNavigation = (
         return;
       }
       const base = getElements();
-      const initialFollows = options.follows ?? 0;
       const instantResponse = options.instant
         ? startInstantPaint(
             initialAttempt,
@@ -291,11 +288,10 @@ export const useNavigation = (
       const outcome = await cache.load(nextRoute, {
         signal: controller.signal,
         refetch: shouldRefetch,
-        has404,
-        settled: settledRoute,
+        has404: has404FromElements(base),
         base,
         url: routeUrl,
-        follows: initialFollows,
+        follows: initialAttempt.follows,
         onBuildIdMismatch: reloadWithUrl,
         onInvalidate: (url) => {
           if (!controller.signal.aborted) {
@@ -307,30 +303,18 @@ export const useNavigation = (
       if (outcome.type === 'aborted' || requestRef.current !== request) {
         return;
       }
-      const historyIntent =
-        instantResponse &&
-        outcome.follows > initialFollows &&
-        options.history !== null
-          ? 'replace'
-          : options.history;
       if (outcome.type === 'reused') {
         startTransition(() => {
-          queueCommit(makeStateForAttempt(outcome, historyIntent), {
+          queueCommit(makeStateForAttempt(outcome, options.history), {
             [ROUTE_ID]: [outcome.route.path, outcome.route.query],
             [INTENT_ID]: cache.getStaticRouteIntent(outcome.route),
           });
         });
         return;
       }
-      if (outcome.type === 'external') {
-        commitHistory(outcome.from, historyIntent);
-        finishRequest();
-        window.location.replace(outcome.url.href);
-        throw outcome.error;
-      }
       if (outcome.type === 'failed') {
         const { error } = outcome;
-        commitHistory(outcome.url, historyIntent);
+        commitHistory(outcome.url, options.history);
         const failureState: RouterState = {
           ...makeRouterState(outcome.route, outcome.url, {
             history: null,
@@ -353,19 +337,19 @@ export const useNavigation = (
         setNavigationError({ error });
         throw error;
       }
-      if (instantResponse && outcome.follows === initialFollows) {
+      if (instantResponse) {
         cache.learnStaticFromElements(outcome.elements);
         finishRequest();
         return;
       }
       const destination = resolveServerRedirect(
         outcome.elements,
-        makeStateForAttempt(outcome, historyIntent),
+        makeStateForAttempt(outcome, options.history),
         outcome.route.path,
       );
       const finalState = makeStateForAttempt(
         { ...destination, follows: outcome.follows },
-        historyIntent,
+        options.history,
       );
       startTransition(() => {
         queueCommit(
@@ -383,7 +367,6 @@ export const useNavigation = (
       mergeElements,
       getElements,
       replaceRequest,
-      has404,
       registerRscReloadListener,
     ],
   );
@@ -399,9 +382,7 @@ export const useNavigation = (
         history: is404 ? null : 'push',
         url: is404 ? new URL(window.location.href) : getRouteUrl(nextRoute),
       }).catch((error) => {
-        if (!isFollowable(error)) {
-          console.error('Error while handling route updates:', error);
-        }
+        console.error('Error while handling route updates:', error);
       });
     },
     [changeRoute],
@@ -431,9 +412,7 @@ export const useNavigation = (
             ? new URL(window.location.href)
             : getRouteUrl(nextRoute),
         }).catch((err) => {
-          if (!isFollowable(err)) {
-            console.error('Error while navigating back:', err);
-          }
+          console.error('Error while navigating back:', err);
         });
       });
     };

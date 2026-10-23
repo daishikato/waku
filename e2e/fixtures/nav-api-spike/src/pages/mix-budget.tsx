@@ -1,7 +1,5 @@
 import { NavRouter } from '../nav-binding.js';
 
-// mix-budget-a as a document request would HTTP-redirect. this root run()s
-// locally so the load-time 404 hops cannot hang the owning Navigation API.
 export default function MixBudgetPage({ query = '' }: { query?: string }) {
   const sameQuery = new URLSearchParams(query).has('same');
   return (

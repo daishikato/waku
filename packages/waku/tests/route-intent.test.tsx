@@ -418,3 +418,70 @@ test('an instant navigation observes its new intent while the previous page inte
   expect(window.location.pathname).toBe('/done');
   expect(view.textContent).toContain('Page /done');
 });
+
+test('an intent redirect preserves scroll: false through its follow', async () => {
+  const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  mocks.queue.push(payload('/one'));
+  const view = await mount();
+  const intent = deferIntent();
+  mocks.queue.push(payload('/gate', intent.promise), payload('/done'));
+  await act(async () => {
+    await controls.router.push('/gate', { scroll: false });
+    await flush();
+    intent.resolve({ status: 307, location: '/done' });
+    await flush();
+  });
+  expect(view.textContent).toContain('Page /done');
+  expect(window.location.pathname).toBe('/done');
+  expect(scroll).not.toHaveBeenCalled();
+});
+
+test.each([false, true])(
+  'a late intent redirect replaces one requested history entry (instant: %s)',
+  async (instant) => {
+    mocks.queue.push({
+      ...payload('/one'),
+      [getRouteSlotId('/gate')]: <p>Cached gate</p>,
+      [ETAGS_ID]: { root: 1, [getRouteSlotId('/gate')]: 1 },
+    });
+    const view = await mount();
+    const push = vi.spyOn(window.history, 'pushState');
+    const replace = vi.spyOn(window.history, 'replaceState');
+    const intent = deferIntent();
+    mocks.queue.push(payload('/gate', intent.promise), payload('/done'));
+    await act(async () => {
+      await controls.router.push('/gate', { unstable_instant: instant });
+      await flush();
+    });
+    expect(window.location.pathname).toBe('/gate');
+    await act(async () => {
+      intent.resolve({ status: 307, location: '/done' });
+      await flush();
+    });
+    expect(view.textContent).toContain('Page /done');
+    expect(window.location.pathname).toBe('/done');
+    expect(push).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledOnce();
+  },
+);
+
+test('an absolute intent leaves once without fetching its destination', async () => {
+  const leave = vi
+    .spyOn(window.location, 'replace')
+    .mockImplementation(() => {});
+  const intent = deferIntent();
+  mocks.queue.push(payload('/one', intent.promise));
+  await mount();
+  const requests = vi.mocked(fetch).mock.calls.length;
+  await act(async () => {
+    intent.resolve({
+      status: 307,
+      location: window.location.origin + '/api/logout',
+    });
+    await flush();
+  });
+  expect(leave).toHaveBeenCalledExactlyOnceWith(
+    window.location.origin + '/api/logout',
+  );
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});

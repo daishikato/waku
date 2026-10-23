@@ -1,9 +1,6 @@
 // eslint-disable-next-line no-restricted-imports -- Discarded responses use Minimal's cancellation signal.
 import { unstable_renderCancellation as renderCancellation } from 'waku/internals';
-import {
-  unstable_getErrorInfo as getErrorInfo,
-  unstable_isRenderCancellation as isRenderCancellation,
-} from 'waku/minimal/server';
+import { unstable_isRenderCancellation as isRenderCancellation } from 'waku/minimal/server';
 import type {
   Unstable_HandleRequest as HandleRequest,
   Unstable_RenderRsc as RenderRsc,
@@ -230,33 +227,6 @@ export const createRequestHandler = ({
         }
       };
 
-      const getEntriesForRedirect = async (location: string) => {
-        const redirectRoute = parseInternalRoute(location, input.req.url);
-        if (!redirectRoute) {
-          return null;
-        }
-        const url = new URL(input.req.url);
-        const base = url.pathname.slice(
-          0,
-          url.pathname.length - input.pathname.length,
-        );
-        const headers = new Headers(input.req.headers);
-        for (const name of ['content-type', 'content-length']) {
-          headers.delete(name);
-        }
-        const destination = new Request(new URL(base + location, url), {
-          headers,
-        });
-        return runHandled(destination, () =>
-          routeEntries.getEntriesForRoute(
-            encodeRoutePath(redirectRoute.path),
-            new URLSearchParams({ query: redirectRoute.query }),
-            clientEtags,
-            requestElementCache,
-          ),
-        ).catch(() => null);
-      };
-
       const handleRscRequest = async ({
         rscPath,
         rscParams,
@@ -286,40 +256,18 @@ export const createRequestHandler = ({
           if (isRenderCancellation(e)) {
             return renderCancelledRequest();
           }
-          const info = getErrorInfo(e);
-          if (info?.location && info.status !== 404) {
-            const redirected = await getEntriesForRedirect(info.location);
-            if (!redirected) {
-              throw e;
-            }
-            return renderRscWithIntent(redirected.elements, {
-              etags: redirected.etags,
-            });
-          }
-          if (info?.status !== 404) {
-            throw e;
-          }
+          throw e;
         }
         if (!entries && (await routeEntries.has404())) {
-          entries = await routeEntries
-            .getEntriesForRoute(
-              encodeRoutePath('/404'),
-              rscParams,
-              clientEtags,
-              requestElementCache,
-            )
-            .catch((e) => {
-              if (getErrorInfo(e)?.status !== 404) {
-                throw e;
-              }
-              return null;
-            });
+          entries = await routeEntries.getEntriesForRoute(
+            encodeRoutePath('/404'),
+            rscParams,
+            clientEtags,
+            requestElementCache,
+          );
         }
         if (!entries) {
-          if (intent.value) {
-            return renderCancelledRequest();
-          }
-          return null;
+          return intent.value ? renderCancelledRequest() : null;
         }
         return renderRscWithIntent(entries.elements, {
           etags: entries.etags,
@@ -330,30 +278,16 @@ export const createRequestHandler = ({
         fn,
         args,
       }: Extract<HandlerInput, { type: 'call' }>) => {
-        try {
-          const { value, entries, isOrigin } = await withRerender(
-            () => fn(...args),
-            () => parseActionOrigin(input.req),
-          );
-          return renderRscWithIntent(
-            isOrigin
-              ? { ...entries.elements, [IS_ORIGIN_ID]: true }
-              : entries.elements,
-            { value, etags: entries.etags },
-          );
-        } catch (e) {
-          const location = getErrorInfo(e)?.location;
-          if (!location) {
-            throw e;
-          }
-          const entries = await getEntriesForRedirect(location);
-          if (!entries) {
-            throw e;
-          }
-          return renderRscWithIntent(entries.elements, {
-            etags: entries.etags,
-          });
-        }
+        const { value, entries, isOrigin } = await withRerender(
+          () => fn(...args),
+          () => parseActionOrigin(input.req),
+        );
+        return renderRscWithIntent(
+          isOrigin
+            ? { ...entries.elements, [IS_ORIGIN_ID]: true }
+            : entries.elements,
+          { value, etags: entries.etags },
+        );
       };
 
       const handleHttpRequest = async ({
@@ -367,10 +301,7 @@ export const createRequestHandler = ({
           pathnameToRoutePath(pathname),
           query,
         ).catch((error) => {
-          if (
-            !isRenderCancellation(error) &&
-            getErrorInfo(error)?.status !== 404
-          ) {
+          if (!isRenderCancellation(error)) {
             throw error;
           }
           return null;
@@ -447,8 +378,6 @@ export const createRequestHandler = ({
               unstable_extraScriptContent: getRouterPrefetchCode(
                 await getPath2moduleIds(),
               ),
-              unstable_rethrowNotFound:
-                status !== 404 && (await routeEntries.has404()),
             },
           );
           const requested = intent.value;
@@ -481,8 +410,7 @@ export const createRequestHandler = ({
             return await renderPage(pathname, query, 200, resolved);
           }
         } catch (e) {
-          const info = getErrorInfo(e);
-          if (!isRenderCancellation(e) && info?.status !== 404) {
+          if (!isRenderCancellation(e)) {
             throw e;
           }
           const redirect = redirectResponse();

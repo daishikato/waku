@@ -16,10 +16,6 @@ export type {
 export type { Etags as Unstable_Etags } from '../lib/utils-isomorphic/etags.js';
 export { buildElements as unstable_buildElements } from '../lib/utils-server/build-elements.js';
 export {
-  createCustomError as unstable_createCustomError,
-  getErrorInfo as unstable_getErrorInfo,
-} from '../lib/utils-isomorphic/custom-errors.js';
-export {
   formatRscUrl as unstable_formatRscUrl,
   parseRequest as unstable_parseRequest,
 } from '../lib/utils-server/request-url.js';
