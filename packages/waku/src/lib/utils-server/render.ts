@@ -4,6 +4,7 @@ import type {
   Unstable_RenderRsc,
 } from '../types.js';
 import { ETAGS_ID } from '../utils-isomorphic/etags.js';
+import { getDigestIfRenderCancellation } from '../utils-isomorphic/render-cancellation.js';
 
 const validateRscElementIds = (elements: Record<string, unknown>) => {
   for (const id of Object.keys(elements)) {
@@ -22,7 +23,7 @@ export function createRenderUtils({
   buildId,
   createDebugChannel,
   debugId,
-  onError,
+  onError: reportError,
 }: {
   temporaryReferences: unknown;
   renderToReadableStream: (
@@ -41,12 +42,20 @@ export function createRenderUtils({
       })
     | undefined;
   debugId?: string | undefined;
-  onError: (e: unknown) => string | undefined;
+  onError: (e: unknown) => void;
 }): {
   renderRsc: Unstable_RenderRsc;
   renderHtml: Unstable_RenderHtml;
   renderHtmlFallback: Unstable_RenderHtmlFallback;
 } {
+  const onError = (error: unknown): string | undefined => {
+    const digest = getDigestIfRenderCancellation(error);
+    if (digest) {
+      return digest;
+    }
+    reportError(error);
+  };
+
   return {
     async renderRsc(elements, options) {
       validateRscElementIds(elements);
