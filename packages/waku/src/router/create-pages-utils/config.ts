@@ -28,9 +28,9 @@ export type GetEtagFromParams = (
 
 export type RouteConfig = {
   type: 'route';
-  path: PathSpec;
+  pathSpec: PathSpec;
   isStatic: boolean;
-  pathPattern?: PathSpec;
+  pathPatternSpec?: PathSpec;
   rootElement: {
     isStatic: boolean;
     renderer: (option: RendererOption) => ReactNode;
@@ -56,13 +56,14 @@ export type RouteConfig = {
   searchCodec?: Unstable_SearchCodec<any>;
 };
 
-export type ApiConfig = {
+type ApiConfig = {
   type: 'api';
-  path: PathSpec;
+  pathSpec: PathSpec;
   isStatic: boolean;
   handler: ApiHandler;
   sourceFile?: string;
 };
+export type ApiConfigForTest = ApiConfig;
 
 export type SliceConfig = {
   type: 'slice';
@@ -76,7 +77,7 @@ export type SliceConfig = {
 
 export type RuntimeConfig = RouteConfig | ApiConfig | SliceConfig;
 
-export type SerializableRouteConfig = Omit<
+type SerializableRouteConfig = Omit<
   RouteConfig,
   'rootElement' | 'routeElement' | 'elements' | 'searchCodec'
 > & {
@@ -93,6 +94,7 @@ export type SerializableRouteConfig = Omit<
     Omit<RouteConfig['elements'][string], 'renderer' | 'getEtagFromOption'>
   >;
 };
+export type SerializableRouteConfigForTest = SerializableRouteConfig;
 
 export type SerializableApiConfig = Omit<ApiConfig, 'handler'>;
 
@@ -106,7 +108,7 @@ export type SerializableConfig =
 
 export const CREATE_PAGES_CONFIGS_KEY = 'createPages:serializableConfigs';
 
-export const pathSpecKey = (p: PathSpec) => JSON.stringify(p);
+export const getPathSpecKey = (p: PathSpec) => JSON.stringify(p);
 
 export const toSerializable = (c: RuntimeConfig): SerializableConfig => {
   if (c.type === 'route') {
@@ -149,7 +151,7 @@ export const toSerializable = (c: RuntimeConfig): SerializableConfig => {
   return rest;
 };
 
-const noRuntimeFn = (what: string): never => {
+const throwMissingRuntimeFunction = (what: string): never => {
   throw new Error(
     `defineRouter: no runtime function found for ${what}; rebuild required`,
   );
@@ -166,9 +168,9 @@ export const mergeWithRuntimeConfigs = (
   const runtimeSliceById = new Map<string, SliceConfig>();
   for (const c of runtimeConfigs) {
     if (c.type === 'route') {
-      runtimeRouteByPath.set(pathSpecKey(c.path), c);
+      runtimeRouteByPath.set(getPathSpecKey(c.pathSpec), c);
     } else if (c.type === 'api') {
-      runtimeApiByPath.set(pathSpecKey(c.path), c);
+      runtimeApiByPath.set(getPathSpecKey(c.pathSpec), c);
     } else {
       runtimeSliceById.set(c.id, c);
     }
@@ -192,8 +194,8 @@ export const mergeWithRuntimeConfigs = (
   }
   return serializableConfigs.map((c) => {
     if (c.type === 'route') {
-      const runtimeItem = runtimeRouteByPath.get(pathSpecKey(c.path));
-      const label = `route ${pathSpecAsString(c.path)}`;
+      const runtimeItem = runtimeRouteByPath.get(getPathSpecKey(c.pathSpec));
+      const label = `route ${pathSpecAsString(c.pathSpec)}`;
       const elements: RouteConfig['elements'] = {};
       for (const [id, val] of Object.entries(c.elements)) {
         const elementSpec = runtimeItem?.elements[id];
@@ -202,7 +204,7 @@ export const mergeWithRuntimeConfigs = (
           renderer:
             elementSpec?.renderer ??
             sharedElementRenderers.get(id) ??
-            (() => noRuntimeFn(`element "${id}" of ${label}`)),
+            (() => throwMissingRuntimeFunction(`element "${id}" of ${label}`)),
           ...(elementSpec?.getEtagFromOption
             ? { getEtagFromOption: elementSpec.getEtagFromOption }
             : {}),
@@ -211,15 +213,17 @@ export const mergeWithRuntimeConfigs = (
       }
       return {
         type: 'route',
-        path: c.path,
+        pathSpec: c.pathSpec,
         isStatic: c.isStatic,
-        ...(c.pathPattern !== undefined ? { pathPattern: c.pathPattern } : {}),
+        ...(c.pathPatternSpec !== undefined
+          ? { pathPatternSpec: c.pathPatternSpec }
+          : {}),
         rootElement: {
           isStatic: c.rootElement.isStatic,
           renderer:
             runtimeItem?.rootElement.renderer ??
             sharedRootRenderer ??
-            (() => noRuntimeFn(`rootElement of ${label}`)),
+            (() => throwMissingRuntimeFunction(`rootElement of ${label}`)),
           ...(runtimeItem?.rootElement.getEtagFromOption
             ? { getEtagFromOption: runtimeItem.rootElement.getEtagFromOption }
             : {}),
@@ -231,7 +235,7 @@ export const mergeWithRuntimeConfigs = (
           isStatic: c.routeElement.isStatic,
           renderer:
             runtimeItem?.routeElement.renderer ??
-            (() => noRuntimeFn(`routeElement of ${label}`)),
+            (() => throwMissingRuntimeFunction(`routeElement of ${label}`)),
           ...(runtimeItem?.routeElement.getEtagFromOption
             ? { getEtagFromOption: runtimeItem.routeElement.getEtagFromOption }
             : {}),
@@ -245,14 +249,15 @@ export const mergeWithRuntimeConfigs = (
       };
     }
     if (c.type === 'api') {
-      const runtimeItem = runtimeApiByPath.get(pathSpecKey(c.path));
+      const runtimeItem = runtimeApiByPath.get(getPathSpecKey(c.pathSpec));
       return {
         type: 'api',
-        path: c.path,
+        pathSpec: c.pathSpec,
         isStatic: c.isStatic,
         handler:
           runtimeItem?.handler ??
-          (async () => noRuntimeFn(`api ${pathSpecAsString(c.path)}`)),
+          (async () =>
+            throwMissingRuntimeFunction(`api ${pathSpecAsString(c.pathSpec)}`)),
         ...(c.sourceFile ? { sourceFile: c.sourceFile } : {}),
       };
     }
@@ -263,7 +268,8 @@ export const mergeWithRuntimeConfigs = (
       ...(c.pathSpec !== undefined ? { pathSpec: c.pathSpec } : {}),
       isStatic: c.isStatic,
       renderer:
-        runtimeItem?.renderer ?? (async () => noRuntimeFn(`slice ${c.id}`)),
+        runtimeItem?.renderer ??
+        (async () => throwMissingRuntimeFunction(`slice ${c.id}`)),
       ...(runtimeItem?.getEtagFromParams
         ? { getEtagFromParams: runtimeItem.getEtagFromParams }
         : {}),

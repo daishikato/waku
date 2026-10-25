@@ -18,15 +18,20 @@ import {
   getElementCacheId,
 } from './element-cache.js';
 import { validateRouteElementIds } from './route-entries.js';
-import type { Resolve, Route, createRouteEntries } from './route-entries.js';
+import type {
+  Resolve,
+  RouterDefinition,
+  createRouteEntries,
+} from './route-entries.js';
 
 export type BuildPath =
   | string
   | {
       pathname: string;
-      route?: Route | ((req: Request) => Promise<Response>);
+      routerDefinition?:
+        RouterDefinition | ((req: Request) => Promise<Response>);
       prerender?: boolean;
-      prefetchPattern?: string;
+      prefetchRegExp?: string;
     };
 
 export type BuildElementId = string | { id: string; source: ElementSource };
@@ -74,7 +79,7 @@ export const createBuildHandler =
     const cache = createElementCache((id, bytes) => {
       cachedElements[id] = bytes;
     });
-    const path2moduleIds: Record<string, string[]> = {};
+    const moduleIdsByPrefetchRegExp: Record<string, string[]> = {};
     const htmlTasks: (() => Promise<void>)[] = [];
     const { runTask, waitForTasks } = createTaskRunner(500);
 
@@ -101,7 +106,8 @@ export const createBuildHandler =
       const req = new Request(url);
       runTask(() =>
         runHandled(req, async () => {
-          const resolved = target?.route ?? (await resolve(routePath, ''));
+          const resolved =
+            target?.routerDefinition ?? (await resolve(routePath, ''));
           if (!resolved) {
             throw new Error('Build path did not resolve: ' + routePath);
           }
@@ -164,11 +170,11 @@ export const createBuildHandler =
           const htmlPath =
             routePath === '/404' ? '404.html' : routePath + '/index.html';
           if (resolved.noSsr) {
-            await utils.generateFile(utils.rscPath2pathname(rscPath), stream);
+            await utils.generateFile(utils.rscPathToFileName(rscPath), stream);
             await utils.generateDefaultHtml(htmlPath);
           } else {
             const [payload, htmlPayload] = stream.tee();
-            await utils.generateFile(utils.rscPath2pathname(rscPath), payload);
+            await utils.generateFile(utils.rscPathToFileName(rscPath), payload);
             htmlTasks.push(() =>
               runHandled(req, async () => {
                 const response = await utils.renderHtml(
@@ -178,16 +184,17 @@ export const createBuildHandler =
                   />,
                   {
                     rscPath,
-                    unstable_extraScriptContent:
-                      getRouterPrefetchCode(path2moduleIds),
+                    unstable_extraScriptContent: getRouterPrefetchCode(
+                      moduleIdsByPrefetchRegExp,
+                    ),
                   },
                 );
                 await utils.generateFile(htmlPath, response.body || '');
               }),
             );
           }
-          path2moduleIds[
-            target?.prefetchPattern ??
+          moduleIdsByPrefetchRegExp[
+            target?.prefetchRegExp ??
               '^' + routePath.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&') + '$'
           ] = [...moduleIds];
         }),
@@ -207,8 +214,8 @@ export const createBuildHandler =
           throw new Error('Unsupported build element ID: ' + id);
         }
         const rscPath = encodeSliceId(id.slice('slice:'.length));
-        const pathname = utils.rscPath2pathname(rscPath);
-        const req = new Request(new URL(pathname, 'http://localhost:3000'));
+        const fileName = utils.rscPathToFileName(rscPath);
+        const req = new Request(new URL(fileName, 'http://localhost:3000'));
         return runHandled(req, async () => {
           const entries = await routeEntries.getEntriesForElement(
             id,
@@ -224,7 +231,7 @@ export const createBuildHandler =
           const stream = await utils.renderRsc(entries.elements, {
             etags: entries.etags,
           });
-          await utils.generateFile(pathname, stream);
+          await utils.generateFile(fileName, stream);
         });
       });
     }
@@ -235,7 +242,7 @@ export const createBuildHandler =
       JSON.stringify(cachedElements),
     );
     await utils.saveBuildMetadata(
-      ROUTER_METADATA.path2moduleIds,
-      JSON.stringify(path2moduleIds),
+      ROUTER_METADATA.moduleIdsByPrefetchRegExp,
+      JSON.stringify(moduleIdsByPrefetchRegExp),
     );
   };

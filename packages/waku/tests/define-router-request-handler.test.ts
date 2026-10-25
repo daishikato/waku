@@ -66,7 +66,8 @@ const callInput = (fn: () => Promise<unknown>, actionLocation?: string) => ({
 
 const dynamicRoute = (name: string) => ({
   type: 'route' as const,
-  path: name === '/' ? [] : [{ type: 'literal' as const, name: name.slice(1) }],
+  pathSpec:
+    name === '/' ? [] : [{ type: 'literal' as const, name: name.slice(1) }],
   isStatic: false,
   rootElement: { isStatic: false, renderer: () => 'root' },
   routeElement: { isStatic: false, renderer: () => 'route' },
@@ -134,7 +135,7 @@ describe('request dispatch', () => {
     expect(seen).toBe(input.req);
   });
 
-  it('rerenders the route an action came from when asked with no arguments', async () => {
+  it('rerenders the route a server function was called from when asked with no arguments', async () => {
     const { handleRequest } = createConfiguredRouter({
       getConfigs: async () => [dynamicRoute('/dest')],
     });
@@ -155,7 +156,7 @@ describe('request dispatch', () => {
     );
   });
 
-  it('renders a named route, not the one an action came from', async () => {
+  it('renders a named route, not the one a server function was called from', async () => {
     const { handleRequest } = createConfiguredRouter({
       getConfigs: async () => [dynamicRoute('/'), dynamicRoute('/dest')],
     });
@@ -189,7 +190,7 @@ describe('request dispatch', () => {
     );
   });
 
-  it('rejects a no-argument rerender when the route an action came from is unknown', async () => {
+  it('rejects a no-argument rerender when the route a server function was called from is unknown', async () => {
     const { handleRequest } = createConfiguredRouter({
       getConfigs: async () => [dynamicRoute('/dest')],
     });
@@ -200,7 +201,9 @@ describe('request dispatch', () => {
         }),
         makeUtils(),
       ),
-    ).rejects.toThrow('The route this action came from is unknown');
+    ).rejects.toThrow(
+      'The route this server function was called from is unknown',
+    );
   });
 
   it('ignores a malformed action location unless the action asks for it', async () => {
@@ -246,7 +249,7 @@ describe('request dispatch', () => {
     expect(elements).not.toHaveProperty(IS_ORIGIN_ID);
   });
 
-  it('marks a response whose last rerender is the route an action came from', async () => {
+  it('marks a response whose last rerender is the route a server function was called from', async () => {
     const { handleRequest } = createConfiguredRouter({
       getConfigs: async () => [dynamicRoute('/'), dynamicRoute('/dest')],
     });
@@ -275,7 +278,9 @@ describe('request dispatch', () => {
         }, '//['),
         makeUtils(),
       ),
-    ).rejects.toThrow('The route this action came from is unknown');
+    ).rejects.toThrow(
+      'The route this server function was called from is unknown',
+    );
   });
 
   it('does not mark a response after a no-argument rerender that failed', async () => {
@@ -379,7 +384,7 @@ describe('request dispatch', () => {
       getConfigs: async () => [
         {
           type: 'api' as const,
-          path: [
+          pathSpec: [
             { type: 'literal' as const, name: 'api' },
             { type: 'group' as const, name: 'slug' },
           ],
@@ -797,7 +802,7 @@ describe('request dispatch', () => {
     expect(utils.renderHtml).not.toHaveBeenCalled();
   });
 
-  it('loads cached-elements and path2moduleIds metadata only once', async () => {
+  it('loads cached-elements and moduleIdsByPrefetchRegExp metadata only once', async () => {
     const loadBuildMetadata = vi.fn(async (key: string) =>
       key === 'defineRouter:cachedElements' ? '{}' : undefined,
     );
@@ -818,7 +823,7 @@ describe('request dispatch', () => {
     const countFor = (key: string) =>
       loadBuildMetadata.mock.calls.filter(([k]) => k === key).length;
     expect(countFor('defineRouter:cachedElements')).toBe(1);
-    expect(countFor('defineRouter:path2moduleIds')).toBe(1);
+    expect(countFor('defineRouter:moduleIdsByPrefetchRegExp')).toBe(1);
   });
 
   it('exposes request-store APIs from router/server inside an interceptor', async () => {

@@ -42,12 +42,12 @@ const encodePathname = (pathname: string) => {
 };
 
 /**
- * Renders the route the current server action was called from into its
+ * Renders the route the current server function was called from into its
  * response. The client drops it if the user has left that route by then.
  */
 export function unstable_rerenderRoute(): void;
 /**
- * Renders a route into the response of the current server action. `pathname`
+ * Renders a route into the response of the current server function. `pathname`
  * is serialized as a URL pathname, so dot segments are resolved and unescaped
  * non-ASCII characters are percent-encoded. `query` is the search string
  * without `?`, serialized as URL search params, so `q=a b` becomes `q=a+b`.
@@ -128,15 +128,17 @@ type RouterOptions = {
 
 /**
  * Creates server handlers for `waku/router/client`. `resolve` receives the
- * normalized pathname and query string without `?`, and returns element
- * sources with `root` and `route`, an HTTP handler, or `null` for not found.
- * The document root uses `Children_UNSTABLE` to place the active route.
+ * normalized pathname and query string without `?`, and returns a router
+ * definition with `root` and `route` element sources, an HTTP handler, or
+ * `null` for not found. The document root uses `Children_UNSTABLE` to place
+ * the active route.
  *
- * `getBuildPaths` lists pathnames to resolve, or explicit `{ pathname, route }`
- * targets. Immutable routes are prerendered, HTTP handlers emit static responses,
- * and mutable routes cache only immutable elements. A target's `prerender: false`
- * caches immutable sources without emitting a page; `prefetchPattern` is a regular
- * expression matching paths that share its client modules.
+ * `getBuildPaths` lists pathnames to resolve, or explicit
+ * `{ pathname, routerDefinition }` targets. Immutable routes are prerendered,
+ * HTTP handlers emit static responses, and mutable routes cache only immutable
+ * elements. A target's `prerender: false` caches immutable sources without
+ * emitting a page; `prefetchRegExp` is a regular expression matching paths
+ * that share its client modules.
  * `resolveElement` handles `slice:<id>` requests from client `Slice`
  * components; `getBuildElementIds` lists immutable IDs to emit as standalone
  * RSC files, as strings to resolve or `{ id, source }` targets.

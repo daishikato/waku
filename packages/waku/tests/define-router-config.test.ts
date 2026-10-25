@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  type ApiConfig,
+  type ApiConfigForTest,
   type RouteConfig,
-  type SerializableRouteConfig,
+  type SerializableRouteConfigForTest,
   type SliceConfig,
+  getPathSpecKey,
   mergeWithRuntimeConfigs,
-  pathSpecKey,
   toSerializable,
 } from '../src/router/create-pages-utils/config.js';
 import type { PathSpec } from '../src/router/isomorphic-utils/path-spec.js';
@@ -15,7 +15,7 @@ const option = { routePath: '/foo', query: undefined };
 
 const makeRoute = (name: string): RouteConfig => ({
   type: 'route',
-  path: path(name),
+  pathSpec: path(name),
   isStatic: false,
   rootElement: {
     isStatic: false,
@@ -40,9 +40,9 @@ const makeRoute = (name: string): RouteConfig => ({
   },
 });
 
-const makeApi = (name: string): ApiConfig => ({
+const makeApi = (name: string): ApiConfigForTest => ({
   type: 'api',
-  path: path(name),
+  pathSpec: path(name),
   isStatic: true,
   handler: async () => new Response(`api:${name}`),
   sourceFile: `${name}/api.ts`,
@@ -58,7 +58,9 @@ const makeSlice = (id: string): SliceConfig => ({
 
 describe('toSerializable', () => {
   it('strips renderer and etag functions (and searchCodec) from a route', () => {
-    const s = toSerializable(makeRoute('foo')) as SerializableRouteConfig;
+    const s = toSerializable(
+      makeRoute('foo'),
+    ) as SerializableRouteConfigForTest;
     expect('searchCodec' in s).toBe(false);
     expect('renderer' in s.rootElement).toBe(false);
     expect('getEtagFromOption' in s.rootElement).toBe(false);
@@ -67,7 +69,7 @@ describe('toSerializable', () => {
     expect('getEtagFromOption' in s.elements.main!).toBe(false);
     // non-function metadata is preserved
     expect(s.isStatic).toBe(false);
-    expect(s.path).toEqual(path('foo'));
+    expect(s.pathSpec).toEqual(path('foo'));
     expect(s.elements.main!.sourceFile).toBe('foo/main.tsx');
   });
 
@@ -107,7 +109,7 @@ describe('mergeWithRuntimeConfigs', () => {
     );
     expect(mRoute.elements.main!.renderer(option)).toBe('main:foo');
 
-    const mApi = merged.find((c) => c.type === 'api') as ApiConfig;
+    const mApi = merged.find((c) => c.type === 'api') as ApiConfigForTest;
     expect(
       await (
         await mApi.handler(new Request('http://x/'), { params: {} })
@@ -128,7 +130,8 @@ describe('mergeWithRuntimeConfigs', () => {
     );
     const mB = merged.find(
       (c) =>
-        c.type === 'route' && pathSpecKey(c.path) === pathSpecKey(path('b')),
+        c.type === 'route' &&
+        getPathSpecKey(c.pathSpec) === getPathSpecKey(path('b')),
     ) as RouteConfig;
     expect(mB.rootElement.renderer(option)).toBe('root:a');
   });
@@ -142,7 +145,8 @@ describe('mergeWithRuntimeConfigs', () => {
     );
     const mB = merged.find(
       (c) =>
-        c.type === 'route' && pathSpecKey(c.path) === pathSpecKey(path('b')),
+        c.type === 'route' &&
+        getPathSpecKey(c.pathSpec) === getPathSpecKey(path('b')),
     ) as RouteConfig;
     expect(mB.elements.main!.renderer(option)).toBe('main:a');
   });
@@ -164,7 +168,7 @@ describe('mergeWithRuntimeConfigs', () => {
       'rebuild required',
     );
 
-    const mApi = merged.find((c) => c.type === 'api') as ApiConfig;
+    const mApi = merged.find((c) => c.type === 'api') as ApiConfigForTest;
     await expect(
       mApi.handler(new Request('http://x/'), { params: {} }),
     ).rejects.toThrow('no runtime function found');
@@ -188,9 +192,9 @@ describe('mergeWithRuntimeConfigs', () => {
   });
 });
 
-describe('pathSpecKey', () => {
+describe('getPathSpecKey', () => {
   it('is stable for equal specs and distinct for different specs', () => {
-    expect(pathSpecKey(path('foo'))).toBe(pathSpecKey(path('foo')));
-    expect(pathSpecKey(path('foo'))).not.toBe(pathSpecKey(path('bar')));
+    expect(getPathSpecKey(path('foo'))).toBe(getPathSpecKey(path('foo')));
+    expect(getPathSpecKey(path('foo'))).not.toBe(getPathSpecKey(path('bar')));
   });
 });

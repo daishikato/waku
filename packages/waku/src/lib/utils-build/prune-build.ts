@@ -33,14 +33,14 @@ export const pruneBuildOutput = async ({
   distDir,
   rscBundle,
   prunableFiles,
-  serverReferenceIds,
+  serverReferenceModuleIds,
 }: {
   rootDir: string;
   srcDir: string;
   distDir: string;
   rscBundle: Record<string, Chunk | Asset>;
   prunableFiles: string[];
-  serverReferenceIds: ReadonlySet<string>;
+  serverReferenceModuleIds: ReadonlySet<string>;
 }): Promise<{ stubbedChunks: string[]; deletedAssets: string[] }> => {
   if (prunableFiles.length === 0) {
     return { stubbedChunks: [], deletedAssets: [] };
@@ -60,7 +60,7 @@ export const pruneBuildOutput = async ({
   }
   const chunkMap = new Map(chunks.map((c) => [c.fileName, c]));
 
-  const viteAssetsOf = (chunk: Chunk) => [
+  const getViteAssets = (chunk: Chunk) => [
     ...(chunk.viteMetadata?.importedAssets ?? []),
     ...(chunk.viteMetadata?.importedCss ?? []),
   ];
@@ -69,7 +69,7 @@ export const pruneBuildOutput = async ({
   // aren't ours to manage.
   const chunkImportedAssets = new Set<string>();
   for (const chunk of chunks) {
-    for (const a of viteAssetsOf(chunk)) {
+    for (const a of getViteAssets(chunk)) {
       chunkImportedAssets.add(a);
     }
   }
@@ -89,7 +89,7 @@ export const pruneBuildOutput = async ({
     if (chunk.isEntry && chunk.name !== 'build') {
       keepRoots.push(chunk.fileName);
     }
-    if (chunk.moduleIds.some((id) => serverReferenceIds.has(id))) {
+    if (chunk.moduleIds.some((id) => serverReferenceModuleIds.has(id))) {
       keepRoots.push(chunk.fileName);
     }
   }
@@ -114,7 +114,7 @@ export const pruneBuildOutput = async ({
         visit(dyn);
       }
     }
-    for (const a of viteAssetsOf(chunk)) {
+    for (const a of getViteAssets(chunk)) {
       keepFiles.add(a);
     }
   };

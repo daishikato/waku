@@ -45,7 +45,7 @@ type Method =
   | 'PATCH'
   | 'QUERY';
 
-export const pathMappingWithoutGroups: typeof getPathMapping = (
+const getPathMappingWithoutGroups: typeof getPathMapping = (
   pathSpec,
   pathname,
 ) => {
@@ -54,6 +54,7 @@ export const pathMappingWithoutGroups: typeof getPathMapping = (
   );
   return getPathMapping(cleanPathSpec, pathname);
 };
+export const getPathMappingWithoutGroupsForTest = getPathMappingWithoutGroups;
 
 const sanitizeSlug = (slug: string) => slug.replace(/ /g, '-');
 
@@ -91,26 +92,27 @@ const parseSearchOrThrow = (
 };
 
 const forEachConcreteStaticPath = (
-  routePathSpec: PathSpec,
+  pathSpec: PathSpec,
   staticPathsInput: readonly (string | readonly string[])[],
   fn: (concrete: ReturnType<typeof expandStaticRoutePath>) => void,
 ) => {
-  const { numSlugs, numWildcards } = countSlugsAndWildcards(routePathSpec);
+  const { numSlugs, numWildcards } = countSlugsAndWildcards(pathSpec);
   for (const staticSegments of normalizeStaticPaths(staticPathsInput)) {
     assertStaticPathArity(staticSegments, numSlugs, numWildcards);
-    fn(expandStaticRoutePath(routePathSpec, staticSegments));
+    fn(expandStaticRoutePath(pathSpec, staticSegments));
   }
 };
 
 type IsValidPathItem<T> = T extends `/${string}` | '[]' | '' ? false : true;
-export type IsValidPathInSlugPath<T> = T extends `/${infer L}/${infer R}`
+type IsValidPathInSlugPath<T> = T extends `/${infer L}/${infer R}`
   ? IsValidPathItem<L> extends true
     ? IsValidPathInSlugPath<`/${R}`>
     : false
   : T extends `/${infer U}`
     ? IsValidPathItem<U>
     : false;
-export type HasSlugInPath<
+export type IsValidPathInSlugPathForTest<T> = IsValidPathInSlugPath<T>;
+type HasSlugInPath<
   T,
   K extends string,
 > = T extends `/${string}[${K}]${string}/${infer _Rest}`
@@ -120,23 +122,26 @@ export type HasSlugInPath<
     : T extends `/${string}[${K}]${string}`
       ? true
       : false;
+export type HasSlugInPathForTest<T, K extends string> = HasSlugInPath<T, K>;
 
-export type HasWildcardInPath<T> = T extends `/[...${string}]/${string}`
+type HasWildcardInPath<T> = T extends `/[...${string}]/${string}`
   ? true
   : T extends `/${infer _}/${infer U}`
     ? HasWildcardInPath<`/${U}`>
     : T extends `/[...${string}]`
       ? true
       : false;
+export type HasWildcardInPathForTest<T> = HasWildcardInPath<T>;
 
-export type PathWithSlug<T, K extends string> =
+type PathWithSlug<T, K extends string> =
   IsValidPathInSlugPath<T> extends true
     ? HasSlugInPath<T, K> extends true
       ? T
       : never
     : never;
+export type PathWithSlugForTest<T, K extends string> = PathWithSlug<T, K>;
 
-export type StaticSlugRoutePathsTuple<
+type StaticSlugRoutePathsTuple<
   T extends string,
   Slugs extends unknown[] = GetSlugs<T>,
   Result extends readonly string[] = [],
@@ -145,6 +150,11 @@ export type StaticSlugRoutePathsTuple<
   : Slugs extends [infer _, ...infer Rest]
     ? StaticSlugRoutePathsTuple<T, Rest, readonly [...Result, string]>
     : never;
+export type StaticSlugRoutePathsTupleForTest<
+  T extends string,
+  Slugs extends unknown[] = GetSlugs<T>,
+  Result extends readonly string[] = [],
+> = StaticSlugRoutePathsTuple<T, Slugs, Result>;
 
 type StaticSlugRoutePaths<T extends string> =
   HasWildcardInPath<T> extends true
@@ -167,11 +177,16 @@ type PathWithStaticSlugs<T extends string> = T extends `/`
     ? T
     : never;
 
-export type PathWithWildcard<
+type PathWithWildcard<
   Path,
   SlugKey extends string,
   WildSlugKey extends string,
 > = PathWithSlug<Path, SlugKey | `...${WildSlugKey}`>;
+export type PathWithWildcardForTest<
+  Path,
+  SlugKey extends string,
+  WildSlugKey extends string,
+> = PathWithWildcard<Path, SlugKey, WildSlugKey>;
 
 /**
  * Returns a `dynamic` slot's element tag (etag). While the tag is unchanged the
@@ -416,22 +431,22 @@ const createNestedElements = (
     children,
   );
 
-const routePriorityComparator = (
+const compareRoutePriority = (
   a: {
-    path: PathSpec;
+    pathSpec: PathSpec;
     type: 'route' | 'api';
   },
   b: {
-    path: PathSpec;
+    pathSpec: PathSpec;
     type: 'route' | 'api';
   },
 ) => {
-  const aPath = a.path;
-  const bPath = b.path;
-  const aPathLength = aPath.length;
-  const bPathLength = bPath.length;
-  const aHasWildcard = aPath.at(-1)?.type === 'wildcard';
-  const bHasWildcard = bPath.at(-1)?.type === 'wildcard';
+  const aPathSpec = a.pathSpec;
+  const bPathSpec = b.pathSpec;
+  const aPathLength = aPathSpec.length;
+  const bPathLength = bPathSpec.length;
+  const aHasWildcard = aPathSpec.at(-1)?.type === 'wildcard';
+  const bHasWildcard = bPathSpec.at(-1)?.type === 'wildcard';
 
   // Special case: root route (length 0) should come before wildcard routes
   // This ensures exact matches like "/" are checked before catch-all routes like "/[...notFound]"
@@ -450,8 +465,8 @@ const routePriorityComparator = (
   // If path lengths are equal, literal segments take priority over dynamic segments
   const minLength = Math.min(aPathLength, bPathLength);
   for (let i = 0; i < minLength; i++) {
-    const aIsLiteral = aPath[i]?.type === 'literal';
-    const bIsLiteral = bPath[i]?.type === 'literal';
+    const aIsLiteral = aPathSpec[i]?.type === 'literal';
+    const bIsLiteral = bPathSpec[i]?.type === 'literal';
     if (aIsLiteral !== bIsLiteral) {
       return aIsLiteral ? -1 : 1;
     }
@@ -497,7 +512,7 @@ export const createPages = <
     }
   >();
   type DynamicPageEntry<Props = any> = {
-    routePathSpec: PathSpec;
+    pathSpec: PathSpec;
     component: FunctionComponent<Props>;
     noSsr: boolean;
     sourceFile?: string | undefined;
@@ -505,7 +520,7 @@ export const createPages = <
     searchCodec?: Unstable_SearchCodec<any> | undefined;
   };
   type LayoutEntry<Props = any> = {
-    routePathSpec: PathSpec;
+    pathSpec: PathSpec;
     component: FunctionComponent<{ children: ReactNode } & Props>;
     sourceFile?: string | undefined;
     getEtag?: GetEtag<Props> | undefined;
@@ -517,7 +532,7 @@ export const createPages = <
     string,
     {
       render: 'static' | 'dynamic';
-      routePathSpec: PathSpec;
+      pathSpec: PathSpec;
       handlers: Partial<Record<Method | 'all', ApiHandler>>;
       staticParams?: Record<string, string | string[]>;
       sourceFile?: string | undefined;
@@ -549,14 +564,14 @@ export const createPages = <
 
   const createPathPropsMapper = (path: string) => {
     const layoutMatchPath = groupedRoutePathByRoutePath.get(path) ?? path;
-    const routePathSpec = parsePathWithSlug(layoutMatchPath);
+    const pathSpec = parsePathWithSlug(layoutMatchPath);
     return (pathname: string) =>
-      pathMappingWithoutGroups(routePathSpec, pathname);
+      getPathMappingWithoutGroups(pathSpec, pathname);
   };
 
   const createLayoutPropsMapper = (layoutPath: string) => {
-    const routePathSpec = parsePathWithSlug(layoutPath);
-    const numSegments = routePathSpec.filter(
+    const pathSpec = parsePathWithSlug(layoutPath);
+    const numSegments = pathSpec.filter(
       (segment) =>
         !(segment.type === 'literal' && segment.name.startsWith('(')),
     ).length;
@@ -564,7 +579,7 @@ export const createPages = <
       const layoutRoutePath =
         '/' +
         routePath.split('/').filter(Boolean).slice(0, numSegments).join('/');
-      return pathMappingWithoutGroups(routePathSpec, layoutRoutePath) ?? {};
+      return getPathMappingWithoutGroups(pathSpec, layoutRoutePath) ?? {};
     };
   };
 
@@ -630,8 +645,8 @@ export const createPages = <
       throw new Error(`Duplicated path: ${page.path}`);
     }
 
-    const routePathSpec = parsePathWithSlug(pageRoutePath);
-    const { numSlugs, numWildcards } = countSlugsAndWildcards(routePathSpec);
+    const pathSpec = parsePathWithSlug(pageRoutePath);
+    const { numSlugs, numWildcards } = countSlugsAndWildcards(pathSpec);
     const noSsr = page.unstable_disableSSR ?? false;
     const slices = page.slices || [];
     const sourceFile = page.unstable_sourceFile;
@@ -656,7 +671,7 @@ export const createPages = <
         registerStaticComponent(id, page.component, sourceFile);
       } else {
         dynamicPageEntryByRoutePath.set(routePath, {
-          routePathSpec: spec,
+          pathSpec: spec,
           component: page.component,
           noSsr,
           sourceFile,
@@ -670,7 +685,7 @@ export const createPages = <
     const registerStaticPageWithoutSlugs = () => {
       const routePath = pathnameToRoutePath(getGrouplessPath(page.path));
       staticPageEntryByRoutePath.set(routePath, {
-        concretePathSpec: routePathSpec,
+        concretePathSpec: pathSpec,
         noSsr,
         sourceFile,
       });
@@ -686,7 +701,7 @@ export const createPages = <
       staticPathsInput: readonly (string | readonly string[])[],
     ) => {
       forEachConcreteStaticPath(
-        routePathSpec,
+        pathSpec,
         staticPathsInput,
         ({ concretePath, pathItems, mapping }) => {
           const routePath = pathnameToRoutePath(getGrouplessPath(concretePath));
@@ -696,7 +711,7 @@ export const createPages = <
           }));
           staticPageEntryByRoutePath.set(routePath, {
             concretePathSpec,
-            pathPatternSpec: routePathSpec,
+            pathPatternSpec: pathSpec,
             noSsr,
             sourceFile,
           });
@@ -719,7 +734,7 @@ export const createPages = <
         groupedRoutePathByRoutePath.set(routePath, pageRoutePath);
       }
       dynamicPageEntryByRoutePath.set(routePath, {
-        routePathSpec,
+        pathSpec,
         component: page.component,
         noSsr,
         sourceFile,
@@ -735,7 +750,7 @@ export const createPages = <
         groupedRoutePathByRoutePath.set(routePath, pageRoutePath);
       }
       wildcardPageEntryByRoutePath.set(routePath, {
-        routePathSpec,
+        pathSpec,
         component: page.component,
         noSsr,
         sourceFile,
@@ -782,9 +797,9 @@ export const createPages = <
       if (dynamicLayoutEntryByRoutePath.has(routePath)) {
         throw new Error(`Duplicated dynamic path: ${layout.path}`);
       }
-      const routePathSpec = parsePathWithSlug(routePath);
+      const pathSpec = parsePathWithSlug(routePath);
       dynamicLayoutEntryByRoutePath.set(routePath, {
-        routePathSpec,
+        pathSpec,
         component: layout.component,
         sourceFile,
         getEtag,
@@ -812,12 +827,12 @@ export const createPages = <
     if (pagePathExists(routePath)) {
       throw new Error(`Duplicated api path: ${options.path}`);
     }
-    const routePathSpec = parsePathWithSlug(routePath);
+    const pathSpec = parsePathWithSlug(routePath);
     if (options.render === 'static') {
-      const { numSlugs } = countSlugsAndWildcards(routePathSpec);
+      const { numSlugs } = countSlugsAndWildcards(pathSpec);
       if (numSlugs > 0 && options.staticPaths) {
         forEachConcreteStaticPath(
-          routePathSpec,
+          pathSpec,
           options.staticPaths,
           ({ concretePath, pathItems, mapping }) => {
             const concreteRoutePath = pathnameToRoutePath(concretePath);
@@ -826,7 +841,7 @@ export const createPages = <
             }
             apiEntryByRoutePath.set(concreteRoutePath, {
               render: 'static',
-              routePathSpec: pathItems.map((name) => ({
+              pathSpec: pathItems.map((name) => ({
                 type: 'literal',
                 name,
               })),
@@ -839,7 +854,7 @@ export const createPages = <
       } else {
         apiEntryByRoutePath.set(routePath, {
           render: 'static',
-          routePathSpec,
+          pathSpec,
           handlers: { GET: options.handler },
           sourceFile,
         });
@@ -847,7 +862,7 @@ export const createPages = <
     } else {
       apiEntryByRoutePath.set(routePath, {
         render: 'dynamic',
-        routePathSpec,
+        pathSpec,
         handlers: options.handlers,
         sourceFile,
       });
@@ -944,10 +959,10 @@ export const createPages = <
     await ready;
   };
 
-  const getLayouts = (routePathSpec: PathSpec): string[] => {
-    const pathSegments = routePathSpec.reduce<string[]>(
+  const getLayouts = (pathSpec: PathSpec): string[] => {
+    const pathSegments = pathSpec.reduce<string[]>(
       (acc, _segment, index) => {
-        acc.push(pathSpecAsString(routePathSpec.slice(0, index + 1)));
+        acc.push(pathSpecAsString(pathSpec.slice(0, index + 1)));
         return acc;
       },
       ['/'],
@@ -1081,7 +1096,7 @@ export const createPages = <
         noSsr: boolean,
       ) => ({
         type: 'route' as const,
-        path: pathSpec.filter((part) => !part.name?.startsWith('(')),
+        pathSpec: pathSpec.filter((part) => !part.name?.startsWith('(')),
         isStatic:
           rootIsStatic &&
           isAllElementsStatic(elements) &&
@@ -1125,14 +1140,14 @@ export const createPages = <
                 elements,
                 noSsr,
               ),
-              ...(pathPatternSpec && { pathPattern: pathPatternSpec }),
+              ...(pathPatternSpec && { pathPatternSpec }),
             };
           },
         );
       const buildDynamicLikeRouteConfig = (
         routePath: string,
         {
-          routePathSpec,
+          pathSpec,
           component,
           noSsr,
           sourceFile,
@@ -1140,7 +1155,7 @@ export const createPages = <
           searchCodec,
         }: DynamicPageEntry,
       ) => {
-        const layouts = collectLayoutMatches(routePathSpec);
+        const layouts = collectLayoutMatches(pathSpec);
         const getPropsMapping = createPathPropsMapper(routePath);
         const elements: Record<string, ElementSpec> =
           buildLayoutElements(layouts);
@@ -1155,7 +1170,7 @@ export const createPages = <
         return {
           ...buildRouteConfigBase(
             routePath,
-            routePathSpec,
+            pathSpec,
             layouts,
             elements,
             noSsr,
@@ -1174,9 +1189,9 @@ export const createPages = <
       const buildApiConfigs = () =>
         Array.from(
           apiEntryByRoutePath.values(),
-          ({ routePathSpec, render, handlers, staticParams, sourceFile }) => ({
+          ({ pathSpec, render, handlers, staticParams, sourceFile }) => ({
             type: 'api' as const,
-            path: routePathSpec,
+            pathSpec,
             isStatic: render === 'static',
             handler: async (
               req: Request,
@@ -1229,7 +1244,7 @@ export const createPages = <
       ];
       const pathConfigs = [...routeConfigs, ...buildApiConfigs()]
         // Sort routes by priority: "standard routes" -> api routes -> api wildcard routes -> standard wildcard routes
-        .sort((configA, configB) => routePriorityComparator(configA, configB));
+        .sort((configA, configB) => compareRoutePriority(configA, configB));
       return [...pathConfigs, ...buildSliceConfigs()];
     },
     ...(options?.unstable_skipBuild && {
@@ -1248,13 +1263,13 @@ export const createPages = <
 };
 
 function expandStaticRoutePath(
-  routePathSpec: PathSpec,
+  pathSpec: PathSpec,
   staticSegments: readonly string[],
 ) {
   const mapping: Record<string, string | string[]> = {};
   let slugIndex = 0;
   const pathItems: string[] = [];
-  routePathSpec.forEach((spec) => {
+  pathSpec.forEach((spec) => {
     switch (spec.type) {
       case 'literal':
         pathItems.push(spec.name!);
