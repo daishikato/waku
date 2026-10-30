@@ -83,8 +83,10 @@ test.describe('weak promises', () => {
       'data-hydrated',
       'true',
     );
-    // eslint-disable-next-line playwright/no-force-option -- WebKit's stability check stalls while the document response is open.
-    await page.getByTestId('weak-counter').click({ force: true });
+    // The document response is still open, so pointer input is unreliable:
+    // WebKit's stability check stalls and Firefox can drop the click. A DOM
+    // click event still proves the hydrated handler is wired.
+    await page.getByTestId('weak-counter').dispatchEvent('click');
     await expect(page.getByTestId('weak-counter')).toHaveText('1');
     const release = await request.get(
       `http://localhost:${port}/weak-release?id=${id}`,
