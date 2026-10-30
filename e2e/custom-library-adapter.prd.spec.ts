@@ -1,21 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { prepareStandaloneSetup, test } from './utils.js';
+import {
+  STANDALONE_SETUP_TIMEOUT_MS,
+  prepareStandaloneSetup,
+  test,
+} from './utils.js';
 
 const startApp = prepareStandaloneSetup('custom-library-adapter');
 
 test.describe('custom-library-adapter', () => {
   let port: number;
-  let stopApp: () => Promise<void>;
+  let stopApp: (() => Promise<void>) | undefined;
   let standaloneDir: string;
 
   test.beforeAll(async () => {
+    test.setTimeout(STANDALONE_SETUP_TIMEOUT_MS);
     ({ port, stopApp, standaloneDir } = await startApp('PRD', 'pnpm'));
   });
 
   test.afterAll(async () => {
-    await stopApp();
+    if (stopApp) {
+      await stopApp();
+    }
   });
 
   test('runs post build from dependency adapter', async ({ page }) => {

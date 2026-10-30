@@ -1,14 +1,19 @@
 import { expect } from '@playwright/test';
-import { prepareStandaloneSetup, test } from './utils.js';
+import {
+  STANDALONE_SETUP_TIMEOUT_MS,
+  prepareStandaloneSetup,
+  test,
+} from './utils.js';
 
 const startApp = prepareStandaloneSetup('monorepo');
 
 for (const packageManager of ['npm', 'pnpm', 'yarn'] as const) {
   test.describe(`${packageManager} monorepo`, () => {
     let port: number;
-    let stopApp: () => Promise<void>;
+    let stopApp: (() => Promise<void>) | undefined;
 
     test.beforeAll(async ({ mode }) => {
+      test.setTimeout(STANDALONE_SETUP_TIMEOUT_MS);
       ({ port, stopApp } = await startApp(
         mode,
         packageManager,
@@ -17,7 +22,9 @@ for (const packageManager of ['npm', 'pnpm', 'yarn'] as const) {
     });
 
     test.afterAll(async () => {
-      await stopApp();
+      if (stopApp) {
+        await stopApp();
+      }
     });
 
     test('renders the home page', async ({ page }) => {

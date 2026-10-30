@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { prepareStandaloneSetup, test, waitForHydration } from './utils.js';
+import {
+  STANDALONE_SETUP_TIMEOUT_MS,
+  prepareStandaloneSetup,
+  test,
+  waitForHydration,
+} from './utils.js';
 
 const startApp = prepareStandaloneSetup('fs-router-build-split');
 
@@ -33,6 +38,7 @@ test.describe('fs-router build split', () => {
   let stopApp: (() => Promise<void>) | undefined;
 
   test.beforeAll(async () => {
+    test.setTimeout(STANDALONE_SETUP_TIMEOUT_MS);
     ({ port, stopApp, standaloneDir } = await startApp('PRD'));
   });
 

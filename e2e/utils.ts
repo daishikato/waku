@@ -36,6 +36,11 @@ export const FETCH_ERROR_MESSAGES = {
 
 const EXEC_TIMEOUT_MS = process.env.CI ? 120_000 : undefined;
 
+// A standalone setup copies a fixture, packs waku, installs with a package
+// manager, builds, and starts the server inside one beforeAll hook. Call
+// test.setTimeout with this in that hook; macOS runners can need minutes.
+export const STANDALONE_SETUP_TIMEOUT_MS = process.env.CI ? 300_000 : 120_000;
+
 export type TestOptions = {
   mode: 'DEV' | 'PRD';
   page: Page;
