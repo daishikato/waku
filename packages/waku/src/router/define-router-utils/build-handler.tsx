@@ -113,7 +113,21 @@ export const createBuildHandler =
           }
           if (typeof resolved === 'function') {
             const response = await resolved(req);
-            await utils.generateFile(routePath, response.body || '');
+            try {
+              await utils.generateFile(routePath, response.body || '');
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                'code' in error &&
+                error.code === 'EEXIST'
+              ) {
+                throw new Error(
+                  `the API route ${routePath} faced file-system conflicts when writing static responses, this often happens because of empty segments in "staticPaths".`,
+                  { cause: error },
+                );
+              }
+              throw error;
+            }
             return;
           }
           validateRouteElementIds(resolved.elements);

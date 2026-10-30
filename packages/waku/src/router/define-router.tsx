@@ -119,7 +119,16 @@ type RouterOptions = {
   resolveElement?: ResolveElement;
   getHas404?: () => Promise<boolean>;
   unstable_interceptors?: HandlerInterceptor[];
+  unstable_loadBuildMetadata?: (utils: {
+    loadBuildMetadata: (key: string) => Promise<string | undefined>;
+  }) => Promise<void>;
+  unstable_saveBuildMetadata?: (utils: {
+    saveBuildMetadata: (key: string, value: string) => Promise<void>;
+    unstable_registerPrunableFile: (srcPath: string) => void;
+  }) => Promise<void>;
 };
+
+const optionsByRouter = new WeakMap<Handlers, RouterOptions>();
 
 /**
  * Creates server handlers for `waku/router/client`. `resolve` receives the
@@ -145,6 +154,13 @@ type RouterOptions = {
  * `getHas404` when provided or resolving `/404` otherwise.
  * Immutable sources must render the same content for the lifetime of their ID
  * or explicit cache key. Use a bounded set of keys, not arbitrary request paths.
+ *
+ * `unstable_loadBuildMetadata` runs before each request and before the build,
+ * so it can prepare what `resolve` reads. At runtime, `loadBuildMetadata`
+ * reads the values `unstable_saveBuildMetadata` saved after the build; during
+ * the build it reads `undefined`. `unstable_saveBuildMetadata` can also
+ * register source files that only prerendered output uses, so the server
+ * bundle can drop them.
  */
 export function defineRouter(fns: RouterOptions): Handlers {
   const routeEntries = createRouteEntries(
@@ -164,18 +180,180 @@ export function defineRouter(fns: RouterOptions): Handlers {
       ),
     );
   };
-  return {
-    handleRequest: createRequestHandler({
-      resolve: fns.resolve,
-      routeEntries,
-      runHandled,
-    }),
-    handleBuild: createBuildHandler({
-      resolve: fns.resolve,
-      getBuildPaths: fns.getBuildPaths,
-      getBuildElementIds: fns.getBuildElementIds,
-      routeEntries,
-      runHandled,
-    }),
+  const handleRequest = createRequestHandler({
+    resolve: fns.resolve,
+    routeEntries,
+    runHandled,
+  });
+  const handleBuild = createBuildHandler({
+    resolve: fns.resolve,
+    getBuildPaths: fns.getBuildPaths,
+    getBuildElementIds: fns.getBuildElementIds,
+    routeEntries,
+    runHandled,
+  });
+  const router: Handlers = {
+    handleRequest: async (input, utils) => {
+      await fns.unstable_loadBuildMetadata?.({
+        loadBuildMetadata: utils.loadBuildMetadata,
+      });
+      return handleRequest(input, utils);
+    },
+    handleBuild: async (utils) => {
+      await fns.unstable_loadBuildMetadata?.({
+        loadBuildMetadata: async () => undefined,
+      });
+      await handleBuild(utils);
+      await fns.unstable_saveBuildMetadata?.({
+        saveBuildMetadata: utils.saveBuildMetadata,
+        unstable_registerPrunableFile: utils.unstable_registerPrunableFile,
+      });
+    },
   };
+  optionsByRouter.set(router, fns);
+  return router;
+}
+
+const findResolved = async (
+  optionsList: RouterOptions[],
+  pathname: string,
+  query: string,
+) => {
+  for (const options of optionsList) {
+    const resolved = await options.resolve(pathname, query);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
+};
+
+const findElementSource = async (optionsList: RouterOptions[], id: string) => {
+  for (const options of optionsList) {
+    const source = await options.resolveElement?.(id);
+    if (source) {
+      return source;
+    }
+  }
+  return null;
+};
+
+/**
+ * Combines routers created by `unstable_defineRouter`, `createPages`, or
+ * `fsRouter` into one router. A route or an independently requested element,
+ * such as a slice, belongs to the first router that resolves it. The build
+ * follows the same order and skips build paths and element IDs that an earlier
+ * router resolves.
+ *
+ * The routers share element IDs, so an ID such as `root` or `layout:/` must
+ * render the same content in every router that defines it. For example, give
+ * `createPages` the root component that `fsRouter` reads from `_root.tsx`.
+ * Handler interceptors from every router wrap every request, in router order.
+ *
+ * @example
+ * export default adapter(
+ *   unstable_combineRouters(
+ *     createPages(async ({ createPage }) => [
+ *       createPage({ path: '/company', render: 'static', component: Company }),
+ *     ]),
+ *     fsRouter(import.meta.glob('./pages/**\/*.{tsx,ts}')),
+ *   ),
+ * );
+ */
+export function combineRouters(...routers: Handlers[]): Handlers {
+  const optionsList = routers.map((router) => {
+    const options = optionsByRouter.get(router);
+    if (!options) {
+      throw new Error(
+        'combineRouters accepts only routers created by defineRouter, createPages, or fsRouter',
+      );
+    }
+    return options;
+  });
+  const getBuildMetadataKey = (index: number, key: string) =>
+    `combineRouters:${index}:${key}`;
+  return defineRouter({
+    resolve: (pathname, query) => findResolved(optionsList, pathname, query),
+    resolveElement: (id) => findElementSource(optionsList, id),
+    getHas404: async () => {
+      for (const options of optionsList) {
+        const has404 = options.getHas404
+          ? await options.getHas404()
+          : await options
+              .resolve('/404', '')
+              .then(
+                (result) => result !== null && typeof result !== 'function',
+              );
+        if (has404) {
+          return true;
+        }
+      }
+      return false;
+    },
+    getBuildPaths: async () => {
+      const targets: BuildPath[] = [];
+      for (const [index, options] of optionsList.entries()) {
+        const earlierOptionsList = optionsList.slice(0, index);
+        for (const target of (await options.getBuildPaths?.()) ?? []) {
+          const url = new URL('http://localhost:3000');
+          url.pathname = typeof target === 'string' ? target : target.pathname;
+          url.pathname = pathnameToRoutePath(url.pathname);
+          // resolve may call getRequest, as it can when the build resolves it
+          const resolvedEarlier = await runWithRouterStore(
+            { req: new Request(url) },
+            () => findResolved(earlierOptionsList, url.pathname, ''),
+          );
+          if (!resolvedEarlier) {
+            targets.push(target);
+          }
+        }
+      }
+      return targets;
+    },
+    getBuildElementIds: async () => {
+      const targets: BuildElementId[] = [];
+      for (const [index, options] of optionsList.entries()) {
+        const earlierOptionsList = optionsList.slice(0, index);
+        for (const target of (await options.getBuildElementIds?.()) ?? []) {
+          const id = typeof target === 'string' ? target : target.id;
+          if (!(await findElementSource(earlierOptionsList, id))) {
+            targets.push(target);
+          }
+        }
+      }
+      return targets;
+    },
+    unstable_interceptors: [
+      // read per request: createPages registers interceptors as it loads pages
+      <T,>(next: () => Promise<T>) =>
+        optionsList
+          .flatMap((options) => options.unstable_interceptors ?? [])
+          .reduceRight(
+            (inner, interceptor) => () => interceptor(inner),
+            next,
+          )(),
+    ],
+    unstable_loadBuildMetadata: async ({ loadBuildMetadata }) => {
+      await Promise.all(
+        optionsList.map((options, index) =>
+          options.unstable_loadBuildMetadata?.({
+            loadBuildMetadata: (key) =>
+              loadBuildMetadata(getBuildMetadataKey(index, key)),
+          }),
+        ),
+      );
+    },
+    unstable_saveBuildMetadata: async ({
+      saveBuildMetadata,
+      unstable_registerPrunableFile,
+    }) => {
+      for (const [index, options] of optionsList.entries()) {
+        await options.unstable_saveBuildMetadata?.({
+          saveBuildMetadata: (key, value) =>
+            saveBuildMetadata(getBuildMetadataKey(index, key), value),
+          unstable_registerPrunableFile,
+        });
+      }
+    },
+  });
 }

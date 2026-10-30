@@ -72,70 +72,42 @@ export const createConfiguredRouter = (fns: {
     ...(fns.unstable_interceptors && {
       unstable_interceptors: fns.unstable_interceptors,
     }),
-  });
-  const handleRequest: typeof router.handleRequest = async (input, utils) => {
-    await registry.initialize(utils.loadBuildMetadata);
-    return router.handleRequest(input, utils);
-  };
-
-  const handleBuild: typeof router.handleBuild = async (utils) => {
-    await registry.initialize();
-    const configs = registry.getAll();
-    const sourceFiles = new Map<string, boolean>();
-    const record = (source: { isStatic: boolean; sourceFile?: string }) => {
-      if (source.sourceFile) {
-        sourceFiles.set(
-          source.sourceFile,
-          source.isStatic && (sourceFiles.get(source.sourceFile) ?? true),
-        );
-      }
-    };
-    for (const config of configs) {
-      if (config.type === 'route') {
-        record(config.rootElement);
-        Object.values(config.elements).forEach(record);
-      } else {
-        record(config);
-      }
-    }
-    for (const [file, isStatic] of sourceFiles) {
-      if (isStatic) {
-        utils.unstable_registerPrunableFile(file);
-      }
-    }
-    await router.handleBuild({
-      ...utils,
-      generateFile: async (path, body) => {
-        try {
-          await utils.generateFile(path, body);
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'EEXIST' &&
-            configs.some(
-              (config) =>
-                config.type === 'api' &&
-                pathSpecAsString(config.pathSpec) === path,
-            )
-          ) {
-            throw new Error(
-              `the API route ${path} faced file-system conflicts when writing static responses, this often happens because of empty segments in "staticPaths".`,
-              { cause: error },
-            );
-          }
-          throw error;
+    unstable_loadBuildMetadata: ({ loadBuildMetadata }) =>
+      registry.initialize(loadBuildMetadata),
+    unstable_saveBuildMetadata: async ({
+      saveBuildMetadata,
+      unstable_registerPrunableFile,
+    }) => {
+      const configs = registry.getAll();
+      const sourceFiles = new Map<string, boolean>();
+      const record = (source: { isStatic: boolean; sourceFile?: string }) => {
+        if (source.sourceFile) {
+          sourceFiles.set(
+            source.sourceFile,
+            source.isStatic && (sourceFiles.get(source.sourceFile) ?? true),
+          );
         }
-      },
-    });
-    await utils.saveBuildMetadata(
-      CREATE_PAGES_CONFIGS_KEY,
-      JSON.stringify(configs.map(toSerializable)),
-    );
-  };
-  return {
-    handleRequest,
-    handleBuild,
+      };
+      for (const config of configs) {
+        if (config.type === 'route') {
+          record(config.rootElement);
+          Object.values(config.elements).forEach(record);
+        } else {
+          record(config);
+        }
+      }
+      for (const [file, isStatic] of sourceFiles) {
+        if (isStatic) {
+          unstable_registerPrunableFile(file);
+        }
+      }
+      await saveBuildMetadata(
+        CREATE_PAGES_CONFIGS_KEY,
+        JSON.stringify(configs.map(toSerializable)),
+      );
+    },
+  });
+  return Object.assign(router, {
     unstable_getRouterConfigs: async () => registry.getAll(),
-  };
+  });
 };
