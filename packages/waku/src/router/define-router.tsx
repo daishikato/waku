@@ -288,7 +288,11 @@ export function combineRouters(
         await Promise.all(
           optionsList.map((options) => options.getBuildPaths?.() ?? []),
         ),
-        (target) => (typeof target === 'string' ? target : target.pathname),
+        (target) => {
+          const url = new URL('http://localhost:3000');
+          url.pathname = typeof target === 'string' ? target : target.pathname;
+          return pathnameToRoutePath(url.pathname);
+        },
       ),
     getBuildElementIds: async () =>
       joinBuildTargets(

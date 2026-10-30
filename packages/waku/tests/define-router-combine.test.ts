@@ -3,7 +3,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Handlers } from '../src/lib/types.js';
 import { createPages } from '../src/router/create-pages.js';
-import { combineRouters } from '../src/router/define-router.js';
+import { combineRouters, defineRouter } from '../src/router/define-router.js';
 import type { HandlerInterceptor } from '../src/router/define-router.js';
 import { fsRouter } from '../src/router/fs-router.js';
 
@@ -91,6 +91,21 @@ describe('combineRouters', () => {
         createPage({ path: '/company', render: 'static', component: Company }),
       ]),
       fsRouter({ './pages/company.tsx': async () => ({ default: FsCompany }) }),
+    );
+
+    await expect(router.handleBuild(makeBuildUtils())).rejects.toThrow(
+      'combineRouters: more than one router builds /company',
+    );
+  });
+
+  it('compares build paths as the build writes them', async () => {
+    const resolve = async () => null;
+    const router = combineRouters(
+      defineRouter({ resolve, getBuildPaths: async () => ['/company'] }),
+      defineRouter({
+        resolve,
+        getBuildPaths: async () => ['/company/index.html'],
+      }),
     );
 
     await expect(router.handleBuild(makeBuildUtils())).rejects.toThrow(
