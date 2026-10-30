@@ -20,6 +20,8 @@ import { createRouteEntries } from './define-router-utils/route-entries.js';
 import type {
   Resolve,
   ResolveElement,
+  RouterDefinition,
+  StaticRouterDefinition,
 } from './define-router-utils/route-entries.js';
 import type { NavigationHref } from './isomorphic-utils/build-route-href.js';
 import { pathnameToRoutePath } from './isomorphic-utils/route-path.js';
@@ -113,6 +115,12 @@ export function redirect(
   throw createCustomError('Redirect', { status, location });
 }
 
+const throwNotBuilt = (id: string): never => {
+  throw new Error(
+    `defineRouter: ${id} is not in the build output; rebuild required`,
+  );
+};
+
 type RouterOptions = {
   resolve: Resolve;
   getBuildPaths?: () => Promise<Iterable<BuildPath>>;
@@ -120,8 +128,7 @@ type RouterOptions = {
   resolveElement?: ResolveElement;
   getHas404?: () => Promise<boolean>;
   unstable_interceptors?: HandlerInterceptor[];
-  unstable_initialize?: (buildMetadata: string | undefined) => Promise<void>;
-  unstable_getBuildMetadata?: () => Promise<string>;
+  unstable_initialize?: () => Promise<void>;
   unstable_getPrunableFiles?: () => Promise<Iterable<string>>;
 };
 
@@ -150,19 +157,54 @@ type RouterOptions = {
  * Immutable sources must render the same content for the lifetime of their ID
  * or explicit cache key. Use a bounded set of keys, not arbitrary request paths.
  *
- * `unstable_initialize` runs once, before the first request or the build. It
- * receives the string `unstable_getBuildMetadata` returned in the build, or
- * `undefined` during the build and in development. After the build,
- * `unstable_getPrunableFiles` lists source files that only prerendered output
- * uses, so the server bundle can drop them.
+ * A route whose sources are all immutable, or a built element ID, is kept in
+ * the build output: at runtime it is served from there when the router no
+ * longer resolves it, so its modules can be dropped from the server bundle.
+ * After the build, `unstable_getPrunableFiles` lists those source files.
+ * `unstable_initialize` runs once, before the first request or the build.
  */
 export function defineRouter(fns: RouterOptions): Handlers & {
   unstable_routerOptions: RouterOptions;
 } {
+  let staticRouterDefinitionByRoutePath = new Map<
+    string,
+    StaticRouterDefinition
+  >();
+  let staticElementIds = new Set<string>();
+  const resolve: Resolve = async (pathname, query) => {
+    const resolved = await fns.resolve(pathname, query);
+    const staticRouterDefinition =
+      staticRouterDefinitionByRoutePath.get(pathname);
+    if (resolved || !staticRouterDefinition) {
+      return resolved;
+    }
+    const elements: Record<string, RouterDefinition['elements']['root']> = {};
+    for (const [id, source] of Object.entries(
+      staticRouterDefinition.elements,
+    )) {
+      elements[id] = {
+        ...source,
+        immutable: true,
+        render: () => throwNotBuilt(id),
+      };
+    }
+    return {
+      elements: elements as RouterDefinition['elements'],
+      ...(staticRouterDefinition.noSsr && { noSsr: true }),
+    };
+  };
+  const resolveElement: ResolveElement = async (id) =>
+    (await fns.resolveElement?.(id)) ??
+    (staticElementIds.has(id)
+      ? { immutable: true, render: () => throwNotBuilt(id) }
+      : null);
+  const { getHas404 } = fns;
   const routeEntries = createRouteEntries(
-    fns.resolve,
-    fns.resolveElement,
-    fns.getHas404,
+    resolve,
+    resolveElement,
+    getHas404 &&
+      (async () =>
+        staticRouterDefinitionByRoutePath.has('/404') || getHas404()),
   );
   const runHandled = async <T,>(
     req: Request,
@@ -177,30 +219,44 @@ export function defineRouter(fns: RouterOptions): Handlers & {
     );
   };
   const handleRequest = createRequestHandler({
-    resolve: fns.resolve,
+    resolve,
     routeEntries,
     runHandled,
   });
   const handleBuild = createBuildHandler({
-    resolve: fns.resolve,
+    resolve,
     getBuildPaths: fns.getBuildPaths,
     getBuildElementIds: fns.getBuildElementIds,
     routeEntries,
     runHandled,
   });
   let initialized: Promise<void> | undefined;
-  const initialize = (loadBuildMetadata: () => Promise<string | undefined>) =>
+  const initialize = (
+    loadBuildMetadata: (key: string) => Promise<string | undefined>,
+  ) =>
     (initialized ??= (async () => {
-      await fns.unstable_initialize?.(await loadBuildMetadata());
+      staticRouterDefinitionByRoutePath = new Map(
+        Object.entries(
+          JSON.parse(
+            (await loadBuildMetadata(
+              ROUTER_METADATA.staticRouterDefinitions,
+            )) || '{}',
+          ),
+        ),
+      );
+      staticElementIds = new Set(
+        JSON.parse(
+          (await loadBuildMetadata(ROUTER_METADATA.staticElementIds)) || '[]',
+        ),
+      );
+      await fns.unstable_initialize?.();
     })().catch((error: unknown) => {
       initialized = undefined;
       throw error;
     }));
   return {
     handleRequest: async (input, utils) => {
-      await initialize(() =>
-        utils.loadBuildMetadata(ROUTER_METADATA.buildMetadata),
-      );
+      await initialize(utils.loadBuildMetadata);
       return handleRequest(input, utils);
     },
     handleBuild: async (utils) => {
@@ -208,12 +264,6 @@ export function defineRouter(fns: RouterOptions): Handlers & {
       await handleBuild(utils);
       for (const file of (await fns.unstable_getPrunableFiles?.()) ?? []) {
         utils.unstable_registerPrunableFile(file);
-      }
-      if (fns.unstable_getBuildMetadata) {
-        await utils.saveBuildMetadata(
-          ROUTER_METADATA.buildMetadata,
-          await fns.unstable_getBuildMetadata(),
-        );
       }
     },
     unstable_routerOptions: fns,
@@ -311,22 +361,11 @@ export function combineRouters(
             next,
           )(),
     ],
-    unstable_initialize: async (buildMetadata) => {
-      const buildMetadataList: (string | null)[] = buildMetadata
-        ? JSON.parse(buildMetadata)
-        : [];
+    unstable_initialize: async () => {
       await Promise.all(
-        optionsList.map((options, index) =>
-          options.unstable_initialize?.(buildMetadataList[index] ?? undefined),
-        ),
+        optionsList.map((options) => options.unstable_initialize?.()),
       );
     },
-    unstable_getBuildMetadata: async () =>
-      JSON.stringify(
-        await Promise.all(
-          optionsList.map((options) => options.unstable_getBuildMetadata?.()),
-        ),
-      ),
     unstable_getPrunableFiles: async () => {
       const filesList = await Promise.all(
         optionsList.map(

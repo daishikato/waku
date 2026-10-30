@@ -113,7 +113,7 @@ describe('combineRouters', () => {
     );
   });
 
-  it("restores each router's build metadata at runtime", async () => {
+  it('serves pruned static routes of every router from the build output', async () => {
     const buildRouter = combineRouters(
       createPages(async ({ createPage }) => [
         createPage({ path: '/company', render: 'static', component: Company }),

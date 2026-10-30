@@ -1,12 +1,7 @@
 import { getPathMapping } from '../isomorphic-utils/path-spec.js';
 import type { PathSpec } from '../isomorphic-utils/path-spec.js';
 import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
-import {
-  type RuntimeConfig,
-  type SerializableConfig,
-  type SliceConfig,
-  mergeWithRuntimeConfigs,
-} from './config.js';
+import type { RuntimeConfig, SliceConfig } from './config.js';
 import { assertNonReservedSlotId } from './element-ids.js';
 
 const is404 = (pathSpec: PathSpec) =>
@@ -22,14 +17,8 @@ export const createConfigRegistry = (
   let cachedConfigs: RuntimeConfig[] | undefined;
   let cachedHas404 = false;
 
-  const initialize = async (serializedConfigs?: string) => {
-    const runtimeConfigs = Array.from(await getConfigs());
-    const configs = serializedConfigs
-      ? mergeWithRuntimeConfigs(
-          JSON.parse(serializedConfigs) as SerializableConfig[],
-          runtimeConfigs,
-        )
-      : runtimeConfigs;
+  const initialize = async () => {
+    const configs = Array.from(await getConfigs());
     configs.forEach((item) => {
       if (item.type === 'route') {
         Object.keys(item.elements).forEach(assertNonReservedSlotId);

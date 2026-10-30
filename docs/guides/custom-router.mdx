@@ -153,13 +153,12 @@ Return `{ id, source }` instead of an ID string when the build should use an exp
 
 Include an element directly in a route's `elements` when it should arrive in the route payload. There are no separate page, layout, or slice declarations in `defineRouter`; those are `createPages` authoring concepts.
 
-## Build Metadata
+## Build Output at Runtime
 
-A router that computes its routes at build time can carry them to runtime as a string of build metadata.
+A route whose sources are all immutable stays available from the build output, as does each built element ID. When `resolve` or `resolveElement` no longer returns one at runtime, `defineRouter` serves it from there. A router can therefore leave out modules that only those routes use:
 
-- `unstable_getBuildMetadata()` runs after the build and returns the string to save.
-- `unstable_initialize(buildMetadata)` runs once, before the first request or the build, so it can prepare what `resolve` reads. It receives the saved string at runtime, and `undefined` during the build and in development.
-- `unstable_getPrunableFiles()` runs after the build and lists source files that only prerendered output uses, so the server bundle can drop them.
+- `unstable_getPrunableFiles()` runs after the build and lists those source files, so the server bundle can drop them.
+- `unstable_initialize()` runs once, before the first request or the build, so it can prepare what `resolve` reads.
 
 ## Combining Routers
 
@@ -196,6 +195,6 @@ Generated types from `fsRouter` cover only the file routes.
 
 For changes to Router itself or another client binding, see [Router Protocol](/guides/router-protocol).
 
-`createPages` uses this same public API for runtime and builds. It owns page/layout matching, configuration metadata, and source-file pruning. `fsRouter` uses only `createPages`' public authoring API to translate route modules into those declarations.
+`createPages` uses this same public API for runtime and builds. It owns page/layout matching and decides which source files to prune. `fsRouter` uses only `createPages`' public authoring API to translate route modules into those declarations.
 
 The API is unstable and may change.

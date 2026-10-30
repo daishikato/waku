@@ -6,7 +6,6 @@ import {
 } from '../isomorphic-utils/path-spec.js';
 import { getSliceSlotId } from '../isomorphic-utils/router-protocol.js';
 import { createConfigRegistry } from './config-registry.js';
-import { toSerializable } from './config.js';
 import type { HandlerInterceptor, RuntimeConfig } from './config.js';
 import { createRouteResolver } from './route-resolver.js';
 
@@ -73,25 +72,31 @@ export const createConfiguredRouter = (fns: {
       unstable_interceptors: fns.unstable_interceptors,
     }),
     unstable_initialize: registry.initialize,
-    unstable_getBuildMetadata: async () =>
-      JSON.stringify(registry.getAll().map(toSerializable)),
     unstable_getPrunableFiles: async () => {
+      // pruned modules are served from the build output, which covers only
+      // routes whose sources are all static
       const isStaticBySourceFile = new Map<string, boolean>();
-      const record = (source: { isStatic: boolean; sourceFile?: string }) => {
-        if (source.sourceFile) {
+      const record = (sourceFile: string | undefined, isStatic: boolean) => {
+        if (sourceFile) {
           isStaticBySourceFile.set(
-            source.sourceFile,
-            source.isStatic &&
-              (isStaticBySourceFile.get(source.sourceFile) ?? true),
+            sourceFile,
+            isStatic && (isStaticBySourceFile.get(sourceFile) ?? true),
           );
         }
       };
       for (const config of registry.getAll()) {
         if (config.type === 'route') {
-          record(config.rootElement);
-          Object.values(config.elements).forEach(record);
+          record(config.rootElement.sourceFile, config.isStatic);
+          for (const element of Object.values(config.elements)) {
+            record(element.sourceFile, config.isStatic);
+          }
+          for (const id of config.slices ?? []) {
+            const sourceFile =
+              registry.findSliceConfig(id)?.sliceConfig.sourceFile;
+            record(sourceFile, config.isStatic);
+          }
         } else {
-          record(config);
+          record(config.sourceFile, config.isStatic);
         }
       }
       return Array.from(isStaticBySourceFile)

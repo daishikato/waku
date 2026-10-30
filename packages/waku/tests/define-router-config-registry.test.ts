@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createConfigRegistry } from '../src/router/create-pages-utils/config-registry.js';
-import {
-  type RuntimeConfig,
-  toSerializable,
-} from '../src/router/create-pages-utils/config.js';
+import type { RuntimeConfig } from '../src/router/create-pages-utils/config.js';
 import type { PathSpec } from '../src/router/isomorphic-utils/path-spec.js';
 
 // element-cache (pulled in transitively) imports these; the registry never uses them.
@@ -20,7 +17,6 @@ const route = (
     isStatic?: boolean;
     elements?: Record<string, unknown>;
     pathPatternSpec?: PathSpec;
-    searchCodec?: Extract<RuntimeConfig, { type: 'route' }>['searchCodec'];
   } = {},
 ): RuntimeConfig =>
   ({
@@ -31,7 +27,6 @@ const route = (
     routeElement: { isStatic: false, renderer: () => `route:${name}` },
     elements: opts.elements ?? {},
     ...(opts.pathPatternSpec ? { pathPatternSpec: opts.pathPatternSpec } : {}),
-    ...(opts.searchCodec ? { searchCodec: opts.searchCodec } : {}),
   }) as unknown as RuntimeConfig;
 
 const api = (name: string): RuntimeConfig =>
@@ -64,22 +59,6 @@ describe('config registry initialization', () => {
     );
   });
 
-  it('merges serialized build configs with runtime functions', async () => {
-    const runtime = route('a', {
-      elements: { main: { isStatic: false, renderer: () => 'MAIN-A' } },
-    });
-    const serialized = JSON.stringify([toSerializable(runtime)]);
-    const registry = createConfigRegistry(async () => [runtime]);
-    await registry.initialize(serialized);
-    const merged = registry.getAll().find((c) => c.type === 'route') as never;
-    // the renderer stripped during serialization is restored from the runtime config
-    expect(
-      (
-        merged as { elements: Record<string, { renderer: () => unknown }> }
-      ).elements.main!.renderer(),
-    ).toBe('MAIN-A');
-  });
-
   it('rejects reserved element ids during initialize', async () => {
     const registry = createConfigRegistry(async () => [
       route('a', {
@@ -108,33 +87,6 @@ describe('config registry queries', () => {
     const without = createConfigRegistry(async () => [route('home')]);
     await without.initialize();
     expect(without.has404()).toBe(false);
-  });
-
-  it('retains the runtime search codec when loading serialized route configs', async () => {
-    const codec = {
-      parse: (query: string) => {
-        const page = Number(new URLSearchParams(query).get('page'));
-        if (!Number.isInteger(page) || page < 1) {
-          throw new Error('Invalid page');
-        }
-        return { page };
-      },
-      serialize: ({ page }: { page: number }) => `page=${page}`,
-    };
-    const runtime = route('foo', { searchCodec: codec });
-    const serialized = JSON.stringify([toSerializable(runtime)]);
-    const registry = createConfigRegistry(async () => [runtime]);
-    await registry.initialize(serialized);
-    const config = registry.findPathConfig('/foo');
-    expect(config?.type).toBe('route');
-    if (config?.type !== 'route') {
-      throw new Error('Route config not found');
-    }
-    expect(config.searchCodec).toBe(codec);
-    expect(config.searchCodec?.parse('page=2')).toEqual({ page: 2 });
-    expect(() => config.searchCodec?.parse('page=invalid')).toThrow(
-      'Invalid page',
-    );
   });
 
   it('matches route/api by path and slice by id', async () => {

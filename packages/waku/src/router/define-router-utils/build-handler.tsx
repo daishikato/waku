@@ -21,6 +21,7 @@ import { validateRouteElementIds } from './route-entries.js';
 import type {
   Resolve,
   RouterDefinition,
+  StaticRouterDefinition,
   createRouteEntries,
 } from './route-entries.js';
 
@@ -80,6 +81,8 @@ export const createBuildHandler =
       cachedElements[id] = bytes;
     });
     const moduleIdsByPrefetchRegExp: Record<string, string[]> = {};
+    const staticRouterDefinitions: Record<string, StaticRouterDefinition> = {};
+    const staticElementIds: string[] = [];
     const htmlTasks: (() => Promise<void>)[] = [];
     const { runTask, waitForTasks } = createTaskRunner(500);
 
@@ -131,12 +134,21 @@ export const createBuildHandler =
             return;
           }
           validateRouteElementIds(resolved.elements);
-          if (
-            target?.prerender === false ||
-            !Object.values(resolved.elements).every(
-              (source) => source.immutable,
-            )
-          ) {
+          const isStatic = Object.values(resolved.elements).every(
+            (source) => source.immutable,
+          );
+          if (isStatic) {
+            staticRouterDefinitions[routePath] = {
+              elements: Object.fromEntries(
+                Object.entries(resolved.elements).map(([id, { cacheKey }]) => [
+                  id,
+                  cacheKey === undefined ? {} : { cacheKey },
+                ]),
+              ),
+              ...(resolved.noSsr && { noSsr: true }),
+            };
+          }
+          if (target?.prerender === false || !isStatic) {
             await Promise.all(
               Object.entries(resolved.elements).map(async ([id, source]) => {
                 if (source.immutable) {
@@ -246,6 +258,7 @@ export const createBuildHandler =
             etags: entries.etags,
           });
           await utils.generateFile(fileName, stream);
+          staticElementIds.push(id);
         });
       });
     }
@@ -258,5 +271,13 @@ export const createBuildHandler =
     await utils.saveBuildMetadata(
       ROUTER_METADATA.moduleIdsByPrefetchRegExp,
       JSON.stringify(moduleIdsByPrefetchRegExp),
+    );
+    await utils.saveBuildMetadata(
+      ROUTER_METADATA.staticRouterDefinitions,
+      JSON.stringify(staticRouterDefinitions),
+    );
+    await utils.saveBuildMetadata(
+      ROUTER_METADATA.staticElementIds,
+      JSON.stringify(staticElementIds),
     );
   };
