@@ -184,7 +184,7 @@ export default adapter(
 );
 ```
 
-A route or an independently requested element belongs to the first router that resolves it. The build emits every router's build paths, so keep the routers' routes apart. A catch-all or dynamic route should be in the last router, or it would take routes meant for the routers after it.
+A route or an independently requested element belongs to the first router that resolves it. The build fails when two routers list the same build path or element ID. A catch-all or dynamic route should be in the last router, or it would take routes meant for the routers after it.
 
 The routers share element IDs, so an ID such as `root` or `layout:/` must render the same content in every router that defines it. In the example, `createPages` uses the root component of `_root.tsx`. Handler interceptors from every router wrap every request, in router order.
 

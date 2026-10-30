@@ -85,6 +85,19 @@ describe('combineRouters', () => {
     expect(await requestRoute(router, '/missing')).toBeNull();
   });
 
+  it('fails the build when two routers build the same path', async () => {
+    const router = combineRouters(
+      createPages(async ({ createPage }) => [
+        createPage({ path: '/company', render: 'static', component: Company }),
+      ]),
+      fsRouter({ './pages/company.tsx': async () => ({ default: FsCompany }) }),
+    );
+
+    await expect(router.handleBuild(makeBuildUtils())).rejects.toThrow(
+      'combineRouters: more than one router builds /company',
+    );
+  });
+
   it("restores each router's build metadata at runtime", async () => {
     const buildRouter = combineRouters(
       createPages(async ({ createPage }) => [

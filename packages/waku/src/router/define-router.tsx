@@ -220,11 +220,30 @@ export function defineRouter(fns: RouterOptions): Handlers & {
   };
 }
 
+// the build writes each target to a file, so a later router would overwrite
+// what an earlier router emitted
+const joinBuildTargets = <Target,>(
+  targetsList: Iterable<Target>[],
+  getKey: (target: Target) => string,
+) => {
+  const routerIndexByKey = new Map<string, number>();
+  return targetsList.flatMap((targets, index) =>
+    Array.from(targets, (target) => {
+      const key = getKey(target);
+      if ((routerIndexByKey.get(key) ?? index) !== index) {
+        throw new Error('combineRouters: more than one router builds ' + key);
+      }
+      routerIndexByKey.set(key, index);
+      return target;
+    }),
+  );
+};
+
 /**
  * Combines routers created by `unstable_defineRouter`, `createPages`, or
  * `fsRouter` into one router. A route or an independently requested element,
  * such as a slice, belongs to the first router that resolves it. The build
- * emits every router's build paths, so keep the routers' routes apart.
+ * fails when two routers list the same build path or element ID.
  *
  * The routers share element IDs, so an ID such as `root` or `layout:/` must
  * render the same content in every router that defines it. For example, give
@@ -264,18 +283,20 @@ export function combineRouters(
       }
       return null;
     },
-    getBuildPaths: async () => {
-      const pathsList = await Promise.all(
-        optionsList.map((options) => options.getBuildPaths?.() ?? []),
-      );
-      return pathsList.flatMap((paths) => [...paths]);
-    },
-    getBuildElementIds: async () => {
-      const idsList = await Promise.all(
-        optionsList.map((options) => options.getBuildElementIds?.() ?? []),
-      );
-      return idsList.flatMap((ids) => [...ids]);
-    },
+    getBuildPaths: async () =>
+      joinBuildTargets(
+        await Promise.all(
+          optionsList.map((options) => options.getBuildPaths?.() ?? []),
+        ),
+        (target) => (typeof target === 'string' ? target : target.pathname),
+      ),
+    getBuildElementIds: async () =>
+      joinBuildTargets(
+        await Promise.all(
+          optionsList.map((options) => options.getBuildElementIds?.() ?? []),
+        ),
+        (target) => (typeof target === 'string' ? target : target.id),
+      ),
     unstable_interceptors: [
       // read per request: createPages registers interceptors as it loads pages
       <T,>(next: () => Promise<T>) =>
