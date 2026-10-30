@@ -3,10 +3,9 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Handlers } from '../src/lib/types.js';
 import { createPages } from '../src/router/create-pages.js';
-import { combineRouters, defineRouter } from '../src/router/define-router.js';
+import { combineRouters } from '../src/router/define-router.js';
 import type { HandlerInterceptor } from '../src/router/define-router.js';
 import { fsRouter } from '../src/router/fs-router.js';
-import { serializeRsc } from '../src/server.js';
 
 vi.mock('../src/server.js', () => ({
   deserializeRsc: vi.fn().mockResolvedValue(null),
@@ -84,53 +83,6 @@ describe('combineRouters', () => {
     const about = await requestRoute(router, '/about');
     expect((about?.['page:/about'] as ReactElement).type).toBe(About);
     expect(await requestRoute(router, '/missing')).toBeNull();
-  });
-
-  it('builds each route from the router that serves it', async () => {
-    vi.mocked(serializeRsc).mockClear();
-    const BlogPost = () => createElement('p', null, 'blog post');
-    const router = combineRouters(
-      defineRouter({
-        resolve: async (pathname) =>
-          pathname.startsWith('/blog/')
-            ? {
-                elements: {
-                  root: { render: () => 'root' },
-                  route: { render: () => pathname },
-                },
-              }
-            : null,
-      }),
-      createPages(async ({ createPage }) => [
-        createPage({ path: '/company', render: 'static', component: Company }),
-        createPage({
-          path: '/blog/post',
-          render: 'static',
-          component: BlogPost,
-        }),
-      ]),
-      fsRouter({
-        './pages/company.tsx': async () => ({ default: FsCompany }),
-        './pages/about.tsx': async () => ({ default: About }),
-      }),
-    );
-    const utils = makeBuildUtils();
-
-    await router.handleBuild(utils);
-
-    const htmlFiles = utils.generateFile.mock.calls
-      .map(([fileName]: unknown[]) => fileName)
-      .filter((fileName) => String(fileName).endsWith('.html'));
-    expect(htmlFiles.sort()).toEqual([
-      '/about/index.html',
-      '/company/index.html',
-    ]);
-    const serializedTypes = vi
-      .mocked(serializeRsc)
-      .mock.calls.map(([element]) => (element as ReactElement | null)?.type);
-    expect(serializedTypes).toContain(Company);
-    expect(serializedTypes).not.toContain(FsCompany);
-    expect(serializedTypes).not.toContain(BlogPost);
   });
 
   it("restores each router's build metadata at runtime", async () => {
@@ -222,12 +174,5 @@ describe('combineRouters', () => {
     await requestRoute(router, '/about');
 
     expect(order).toEqual(['a:before', 'b:before', 'b:after', 'a:after']);
-  });
-
-  it('rejects handlers that defineRouter did not create', () => {
-    const { handleRequest, handleBuild } = createPages(async () => []);
-    expect(() => combineRouters({ handleRequest, handleBuild })).toThrow(
-      'combineRouters accepts only routers created by defineRouter, createPages, or fsRouter',
-    );
   });
 });

@@ -5,6 +5,7 @@ import type {
   BuildElementId,
   BuildPath,
 } from './define-router-utils/build-handler.js';
+import { ROUTER_METADATA } from './define-router-utils/build-metadata.js';
 import { createRequestHandler } from './define-router-utils/request-handler.js';
 import {
   getRequest,
@@ -119,16 +120,10 @@ type RouterOptions = {
   resolveElement?: ResolveElement;
   getHas404?: () => Promise<boolean>;
   unstable_interceptors?: HandlerInterceptor[];
-  unstable_loadBuildMetadata?: (utils: {
-    loadBuildMetadata: (key: string) => Promise<string | undefined>;
-  }) => Promise<void>;
-  unstable_saveBuildMetadata?: (utils: {
-    saveBuildMetadata: (key: string, value: string) => Promise<void>;
-    unstable_registerPrunableFile: (srcPath: string) => void;
-  }) => Promise<void>;
+  unstable_initialize?: (buildMetadata: string | undefined) => Promise<void>;
+  unstable_getBuildMetadata?: () => Promise<string>;
+  unstable_getPrunableFiles?: () => Promise<Iterable<string>>;
 };
-
-const optionsByRouter = new WeakMap<Handlers, RouterOptions>();
 
 /**
  * Creates server handlers for `waku/router/client`. `resolve` receives the
@@ -155,14 +150,15 @@ const optionsByRouter = new WeakMap<Handlers, RouterOptions>();
  * Immutable sources must render the same content for the lifetime of their ID
  * or explicit cache key. Use a bounded set of keys, not arbitrary request paths.
  *
- * `unstable_loadBuildMetadata` runs before each request and before the build,
- * so it can prepare what `resolve` reads. At runtime, `loadBuildMetadata`
- * reads the values `unstable_saveBuildMetadata` saved after the build; during
- * the build it reads `undefined`. `unstable_saveBuildMetadata` can also
- * register source files that only prerendered output uses, so the server
- * bundle can drop them.
+ * `unstable_initialize` runs once, before the first request or the build. It
+ * receives the string `unstable_getBuildMetadata` returned in the build, or
+ * `undefined` during the build and in development. After the build,
+ * `unstable_getPrunableFiles` lists source files that only prerendered output
+ * uses, so the server bundle can drop them.
  */
-export function defineRouter(fns: RouterOptions): Handlers {
+export function defineRouter(fns: RouterOptions): Handlers & {
+  unstable_routerOptions: RouterOptions;
+} {
   const routeEntries = createRouteEntries(
     fns.resolve,
     fns.resolveElement,
@@ -192,58 +188,43 @@ export function defineRouter(fns: RouterOptions): Handlers {
     routeEntries,
     runHandled,
   });
-  const router: Handlers = {
+  let initialized: Promise<void> | undefined;
+  const initialize = (loadBuildMetadata: () => Promise<string | undefined>) =>
+    (initialized ??= (async () => {
+      await fns.unstable_initialize?.(await loadBuildMetadata());
+    })().catch((error: unknown) => {
+      initialized = undefined;
+      throw error;
+    }));
+  return {
     handleRequest: async (input, utils) => {
-      await fns.unstable_loadBuildMetadata?.({
-        loadBuildMetadata: utils.loadBuildMetadata,
-      });
+      await initialize(() =>
+        utils.loadBuildMetadata(ROUTER_METADATA.buildMetadata),
+      );
       return handleRequest(input, utils);
     },
     handleBuild: async (utils) => {
-      await fns.unstable_loadBuildMetadata?.({
-        loadBuildMetadata: async () => undefined,
-      });
+      await initialize(async () => undefined);
       await handleBuild(utils);
-      await fns.unstable_saveBuildMetadata?.({
-        saveBuildMetadata: utils.saveBuildMetadata,
-        unstable_registerPrunableFile: utils.unstable_registerPrunableFile,
-      });
+      for (const file of (await fns.unstable_getPrunableFiles?.()) ?? []) {
+        utils.unstable_registerPrunableFile(file);
+      }
+      if (fns.unstable_getBuildMetadata) {
+        await utils.saveBuildMetadata(
+          ROUTER_METADATA.buildMetadata,
+          await fns.unstable_getBuildMetadata(),
+        );
+      }
     },
+    unstable_routerOptions: fns,
   };
-  optionsByRouter.set(router, fns);
-  return router;
 }
-
-const findResolved = async (
-  optionsList: RouterOptions[],
-  pathname: string,
-  query: string,
-) => {
-  for (const options of optionsList) {
-    const resolved = await options.resolve(pathname, query);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  return null;
-};
-
-const findElementSource = async (optionsList: RouterOptions[], id: string) => {
-  for (const options of optionsList) {
-    const source = await options.resolveElement?.(id);
-    if (source) {
-      return source;
-    }
-  }
-  return null;
-};
 
 /**
  * Combines routers created by `unstable_defineRouter`, `createPages`, or
  * `fsRouter` into one router. A route or an independently requested element,
  * such as a slice, belongs to the first router that resolves it. The build
- * follows the same order and skips build paths and element IDs that an earlier
- * router resolves.
+ * emits every router's build paths, so keep the routers' routes apart.
  *
  * The routers share element IDs, so an ID such as `root` or `layout:/` must
  * render the same content in every router that defines it. For example, give
@@ -260,68 +241,40 @@ const findElementSource = async (optionsList: RouterOptions[], id: string) => {
  *   ),
  * );
  */
-export function combineRouters(...routers: Handlers[]): Handlers {
-  const optionsList = routers.map((router) => {
-    const options = optionsByRouter.get(router);
-    if (!options) {
-      throw new Error(
-        'combineRouters accepts only routers created by defineRouter, createPages, or fsRouter',
-      );
-    }
-    return options;
-  });
-  const getBuildMetadataKey = (index: number, key: string) =>
-    `combineRouters:${index}:${key}`;
+export function combineRouters(
+  ...routers: ReturnType<typeof defineRouter>[]
+): ReturnType<typeof defineRouter> {
+  const optionsList = routers.map((router) => router.unstable_routerOptions);
   return defineRouter({
-    resolve: (pathname, query) => findResolved(optionsList, pathname, query),
-    resolveElement: (id) => findElementSource(optionsList, id),
-    getHas404: async () => {
+    resolve: async (pathname, query) => {
       for (const options of optionsList) {
-        const has404 = options.getHas404
-          ? await options.getHas404()
-          : await options
-              .resolve('/404', '')
-              .then(
-                (result) => result !== null && typeof result !== 'function',
-              );
-        if (has404) {
-          return true;
+        const resolved = await options.resolve(pathname, query);
+        if (resolved) {
+          return resolved;
         }
       }
-      return false;
+      return null;
+    },
+    resolveElement: async (id) => {
+      for (const options of optionsList) {
+        const source = await options.resolveElement?.(id);
+        if (source) {
+          return source;
+        }
+      }
+      return null;
     },
     getBuildPaths: async () => {
-      const targets: BuildPath[] = [];
-      for (const [index, options] of optionsList.entries()) {
-        const earlierOptionsList = optionsList.slice(0, index);
-        for (const target of (await options.getBuildPaths?.()) ?? []) {
-          const url = new URL('http://localhost:3000');
-          url.pathname = typeof target === 'string' ? target : target.pathname;
-          url.pathname = pathnameToRoutePath(url.pathname);
-          // resolve may call getRequest, as it can when the build resolves it
-          const resolvedEarlier = await runWithRouterStore(
-            { req: new Request(url) },
-            () => findResolved(earlierOptionsList, url.pathname, ''),
-          );
-          if (!resolvedEarlier) {
-            targets.push(target);
-          }
-        }
-      }
-      return targets;
+      const pathsList = await Promise.all(
+        optionsList.map((options) => options.getBuildPaths?.() ?? []),
+      );
+      return pathsList.flatMap((paths) => [...paths]);
     },
     getBuildElementIds: async () => {
-      const targets: BuildElementId[] = [];
-      for (const [index, options] of optionsList.entries()) {
-        const earlierOptionsList = optionsList.slice(0, index);
-        for (const target of (await options.getBuildElementIds?.()) ?? []) {
-          const id = typeof target === 'string' ? target : target.id;
-          if (!(await findElementSource(earlierOptionsList, id))) {
-            targets.push(target);
-          }
-        }
-      }
-      return targets;
+      const idsList = await Promise.all(
+        optionsList.map((options) => options.getBuildElementIds?.() ?? []),
+      );
+      return idsList.flatMap((ids) => [...ids]);
     },
     unstable_interceptors: [
       // read per request: createPages registers interceptors as it loads pages
@@ -333,27 +286,29 @@ export function combineRouters(...routers: Handlers[]): Handlers {
             next,
           )(),
     ],
-    unstable_loadBuildMetadata: async ({ loadBuildMetadata }) => {
+    unstable_initialize: async (buildMetadata) => {
+      const buildMetadataList: (string | null)[] = buildMetadata
+        ? JSON.parse(buildMetadata)
+        : [];
       await Promise.all(
         optionsList.map((options, index) =>
-          options.unstable_loadBuildMetadata?.({
-            loadBuildMetadata: (key) =>
-              loadBuildMetadata(getBuildMetadataKey(index, key)),
-          }),
+          options.unstable_initialize?.(buildMetadataList[index] ?? undefined),
         ),
       );
     },
-    unstable_saveBuildMetadata: async ({
-      saveBuildMetadata,
-      unstable_registerPrunableFile,
-    }) => {
-      for (const [index, options] of optionsList.entries()) {
-        await options.unstable_saveBuildMetadata?.({
-          saveBuildMetadata: (key, value) =>
-            saveBuildMetadata(getBuildMetadataKey(index, key), value),
-          unstable_registerPrunableFile,
-        });
-      }
+    unstable_getBuildMetadata: async () =>
+      JSON.stringify(
+        await Promise.all(
+          optionsList.map((options) => options.unstable_getBuildMetadata?.()),
+        ),
+      ),
+    unstable_getPrunableFiles: async () => {
+      const filesList = await Promise.all(
+        optionsList.map(
+          (options) => options.unstable_getPrunableFiles?.() ?? [],
+        ),
+      );
+      return filesList.flatMap((files) => [...files]);
     },
   });
 }

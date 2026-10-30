@@ -6,7 +6,7 @@ import {
 } from '../isomorphic-utils/path-spec.js';
 import { getSliceSlotId } from '../isomorphic-utils/router-protocol.js';
 import { createConfigRegistry } from './config-registry.js';
-import { CREATE_PAGES_CONFIGS_KEY, toSerializable } from './config.js';
+import { toSerializable } from './config.js';
 import type { HandlerInterceptor, RuntimeConfig } from './config.js';
 import { createRouteResolver } from './route-resolver.js';
 
@@ -72,23 +72,21 @@ export const createConfiguredRouter = (fns: {
     ...(fns.unstable_interceptors && {
       unstable_interceptors: fns.unstable_interceptors,
     }),
-    unstable_loadBuildMetadata: ({ loadBuildMetadata }) =>
-      registry.initialize(loadBuildMetadata),
-    unstable_saveBuildMetadata: async ({
-      saveBuildMetadata,
-      unstable_registerPrunableFile,
-    }) => {
-      const configs = registry.getAll();
-      const sourceFiles = new Map<string, boolean>();
+    unstable_initialize: registry.initialize,
+    unstable_getBuildMetadata: async () =>
+      JSON.stringify(registry.getAll().map(toSerializable)),
+    unstable_getPrunableFiles: async () => {
+      const isStaticBySourceFile = new Map<string, boolean>();
       const record = (source: { isStatic: boolean; sourceFile?: string }) => {
         if (source.sourceFile) {
-          sourceFiles.set(
+          isStaticBySourceFile.set(
             source.sourceFile,
-            source.isStatic && (sourceFiles.get(source.sourceFile) ?? true),
+            source.isStatic &&
+              (isStaticBySourceFile.get(source.sourceFile) ?? true),
           );
         }
       };
-      for (const config of configs) {
+      for (const config of registry.getAll()) {
         if (config.type === 'route') {
           record(config.rootElement);
           Object.values(config.elements).forEach(record);
@@ -96,18 +94,13 @@ export const createConfiguredRouter = (fns: {
           record(config);
         }
       }
-      for (const [file, isStatic] of sourceFiles) {
-        if (isStatic) {
-          unstable_registerPrunableFile(file);
-        }
-      }
-      await saveBuildMetadata(
-        CREATE_PAGES_CONFIGS_KEY,
-        JSON.stringify(configs.map(toSerializable)),
-      );
+      return Array.from(isStaticBySourceFile)
+        .filter(([, isStatic]) => isStatic)
+        .map(([file]) => file);
     },
   });
-  return Object.assign(router, {
+  return {
+    ...router,
     unstable_getRouterConfigs: async () => registry.getAll(),
-  });
+  };
 };

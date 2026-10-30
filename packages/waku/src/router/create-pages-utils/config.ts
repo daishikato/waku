@@ -106,8 +106,6 @@ export type SerializableSliceConfig = Omit<
 export type SerializableConfig =
   SerializableRouteConfig | SerializableApiConfig | SerializableSliceConfig;
 
-export const CREATE_PAGES_CONFIGS_KEY = 'createPages:serializableConfigs';
-
 export const getPathSpecKey = (p: PathSpec) => JSON.stringify(p);
 
 export const toSerializable = (c: RuntimeConfig): SerializableConfig => {

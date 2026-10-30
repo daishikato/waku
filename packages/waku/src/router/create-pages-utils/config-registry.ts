@@ -2,7 +2,6 @@ import { getPathMapping } from '../isomorphic-utils/path-spec.js';
 import type { PathSpec } from '../isomorphic-utils/path-spec.js';
 import { pathnameToRoutePath } from '../isomorphic-utils/route-path.js';
 import {
-  CREATE_PAGES_CONFIGS_KEY,
   type RuntimeConfig,
   type SerializableConfig,
   type SliceConfig,
@@ -22,20 +21,15 @@ export const createConfigRegistry = (
 ) => {
   let cachedConfigs: RuntimeConfig[] | undefined;
   let cachedHas404 = false;
-  let initPromise: Promise<void> | undefined;
 
-  const load = async (
-    loadBuildMetadata?: (key: string) => Promise<string | undefined>,
-  ) => {
+  const initialize = async (serializedConfigs?: string) => {
     const runtimeConfigs = Array.from(await getConfigs());
-    let configs: RuntimeConfig[] = runtimeConfigs;
-    if (loadBuildMetadata) {
-      const raw = await loadBuildMetadata(CREATE_PAGES_CONFIGS_KEY);
-      if (raw) {
-        const serializableConfigs = JSON.parse(raw) as SerializableConfig[];
-        configs = mergeWithRuntimeConfigs(serializableConfigs, runtimeConfigs);
-      }
-    }
+    const configs = serializedConfigs
+      ? mergeWithRuntimeConfigs(
+          JSON.parse(serializedConfigs) as SerializableConfig[],
+          runtimeConfigs,
+        )
+      : runtimeConfigs;
     configs.forEach((item) => {
       if (item.type === 'route') {
         Object.keys(item.elements).forEach(assertNonReservedSlotId);
@@ -52,16 +46,6 @@ export const createConfigRegistry = (
       (item) => item.type === 'route' && is404(item.pathSpec),
     );
   };
-
-  // A single cached promise so concurrent and repeated calls share one load;
-  // a failed load resets it so a later call can retry.
-  const initialize = (
-    loadBuildMetadata?: (key: string) => Promise<string | undefined>,
-  ): Promise<void> =>
-    (initPromise ??= load(loadBuildMetadata).catch((e) => {
-      initPromise = undefined;
-      throw e;
-    }));
 
   const getAll = (): RuntimeConfig[] => {
     if (!cachedConfigs) {

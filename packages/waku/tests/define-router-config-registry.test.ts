@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createConfigRegistry } from '../src/router/create-pages-utils/config-registry.js';
 import {
-  CREATE_PAGES_CONFIGS_KEY,
   type RuntimeConfig,
   toSerializable,
 } from '../src/router/create-pages-utils/config.js';
@@ -56,29 +55,6 @@ const slice = (
   }) as unknown as RuntimeConfig;
 
 describe('config registry initialization', () => {
-  it('calls getConfigs once across repeated initialize', async () => {
-    const getConfigs = vi.fn(async () => [route('a')]);
-    const registry = createConfigRegistry(getConfigs);
-    await registry.initialize();
-    await registry.initialize();
-    await registry.initialize();
-    expect(getConfigs).toHaveBeenCalledTimes(1);
-  });
-
-  it('shares one operation across concurrent initialize calls', async () => {
-    const getConfigs = vi.fn(async () => {
-      await new Promise((r) => setTimeout(r, 5));
-      return [route('a')];
-    });
-    const registry = createConfigRegistry(getConfigs);
-    await Promise.all([
-      registry.initialize(),
-      registry.initialize(),
-      registry.initialize(),
-    ]);
-    expect(getConfigs).toHaveBeenCalledTimes(1);
-  });
-
   it('throws "configs not initialized" from accessors before initialize', () => {
     const registry = createConfigRegistry(async () => [route('a')]);
     expect(() => registry.getAll()).toThrow('configs not initialized');
@@ -93,11 +69,8 @@ describe('config registry initialization', () => {
       elements: { main: { isStatic: false, renderer: () => 'MAIN-A' } },
     });
     const serialized = JSON.stringify([toSerializable(runtime)]);
-    const loadBuildMetadata = vi.fn(async (key: string) =>
-      key === CREATE_PAGES_CONFIGS_KEY ? serialized : undefined,
-    );
     const registry = createConfigRegistry(async () => [runtime]);
-    await registry.initialize(loadBuildMetadata);
+    await registry.initialize(serialized);
     const merged = registry.getAll().find((c) => c.type === 'route') as never;
     // the renderer stripped during serialization is restored from the runtime config
     expect(
@@ -151,9 +124,7 @@ describe('config registry queries', () => {
     const runtime = route('foo', { searchCodec: codec });
     const serialized = JSON.stringify([toSerializable(runtime)]);
     const registry = createConfigRegistry(async () => [runtime]);
-    await registry.initialize(async (key) =>
-      key === CREATE_PAGES_CONFIGS_KEY ? serialized : undefined,
-    );
+    await registry.initialize(serialized);
     const config = registry.findPathConfig('/foo');
     expect(config?.type).toBe('route');
     if (config?.type !== 'route') {

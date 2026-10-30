@@ -1,6 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { createConfiguredRouter } from '../src/router/create-pages-utils/router.js';
+import { defineRouter } from '../src/router/define-router.js';
 import {
   ROUTE_ID,
   encodeRoutePath,
@@ -340,6 +341,50 @@ describe('define-router handleBuild', () => {
     }
   });
 
+  it('initializes once with the build metadata the build saved', async () => {
+    const buildMetadata = new Map<string, string>();
+    const buildRouter = defineRouter({
+      resolve: async () => null,
+      unstable_getBuildMetadata: async () => 'saved',
+    });
+    await buildRouter.handleBuild({
+      renderRsc: () => Promise.resolve(makeStream()),
+      renderHtml: vi.fn(),
+      rscPathToFileName: (rscPath: string) => `dist/${rscPath}.txt`,
+      saveBuildMetadata: async (key, value) => {
+        buildMetadata.set(key, value);
+      },
+      generateFile: vi.fn(),
+      generateDefaultHtml: vi.fn(),
+      unstable_registerPrunableFile: vi.fn(),
+    });
+
+    const initialize = vi.fn(async () => {});
+    const runtimeRouter = defineRouter({
+      resolve: async () => null,
+      unstable_initialize: initialize,
+    });
+    const utils = {
+      renderRsc: vi.fn(),
+      renderHtml: vi.fn(),
+      renderHtmlFallback: vi.fn(),
+      loadBuildMetadata: async (key: string) => buildMetadata.get(key),
+    };
+    const input = {
+      type: 'rsc' as const,
+      rscPath: 'R/foo',
+      rscParams: undefined,
+      pathname: '/RSC/R/foo.txt',
+      req: new Request('http://localhost/RSC/R/foo.txt'),
+    };
+    await Promise.all([
+      runtimeRouter.handleRequest(input, utils),
+      runtimeRouter.handleRequest(input, utils),
+    ]);
+
+    expect(initialize).toHaveBeenCalledExactlyOnceWith('saved');
+  });
+
   it('does not register a source file shared by any dynamic config', async () => {
     // A source file that backs both a static and a dynamic config must stay
     // in the runtime bundle - pruning it would break the dynamic config.
@@ -454,7 +499,7 @@ describe('define-router handleBuild', () => {
     ) as Record<string, string>;
     expect(Object.keys(cachedElements).length).toBeGreaterThan(0);
     const serializableConfigs = JSON.parse(
-      savedMetadata.get('createPages:serializableConfigs')!,
+      savedMetadata.get('defineRouter:buildMetadata')!,
     ) as { type: string; rootElement?: object }[];
     expect(serializableConfigs).toHaveLength(6);
     expect(
