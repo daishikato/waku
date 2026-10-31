@@ -6,7 +6,6 @@ import {
 } from '../isomorphic-utils/path-spec.js';
 import { getSliceSlotId } from '../isomorphic-utils/router-protocol.js';
 import { createConfigRegistry } from './config-registry.js';
-import { CREATE_PAGES_CONFIGS_KEY, toSerializable } from './config.js';
 import type { HandlerInterceptor, RuntimeConfig } from './config.js';
 import { createRouteResolver } from './route-resolver.js';
 
@@ -72,70 +71,41 @@ export const createConfiguredRouter = (fns: {
     ...(fns.unstable_interceptors && {
       unstable_interceptors: fns.unstable_interceptors,
     }),
-  });
-  const handleRequest: typeof router.handleRequest = async (input, utils) => {
-    await registry.initialize(utils.loadBuildMetadata);
-    return router.handleRequest(input, utils);
-  };
-
-  const handleBuild: typeof router.handleBuild = async (utils) => {
-    await registry.initialize();
-    const configs = registry.getAll();
-    const sourceFiles = new Map<string, boolean>();
-    const record = (source: { isStatic: boolean; sourceFile?: string }) => {
-      if (source.sourceFile) {
-        sourceFiles.set(
-          source.sourceFile,
-          source.isStatic && (sourceFiles.get(source.sourceFile) ?? true),
-        );
-      }
-    };
-    for (const config of configs) {
-      if (config.type === 'route') {
-        record(config.rootElement);
-        Object.values(config.elements).forEach(record);
-      } else {
-        record(config);
-      }
-    }
-    for (const [file, isStatic] of sourceFiles) {
-      if (isStatic) {
-        utils.unstable_registerPrunableFile(file);
-      }
-    }
-    await router.handleBuild({
-      ...utils,
-      generateFile: async (path, body) => {
-        try {
-          await utils.generateFile(path, body);
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'EEXIST' &&
-            configs.some(
-              (config) =>
-                config.type === 'api' &&
-                pathSpecAsString(config.pathSpec) === path,
-            )
-          ) {
-            throw new Error(
-              `the API route ${path} faced file-system conflicts when writing static responses, this often happens because of empty segments in "staticPaths".`,
-              { cause: error },
-            );
-          }
-          throw error;
+    unstable_initialize: registry.initialize,
+    unstable_getPrunableFiles: async () => {
+      // pruned modules are served from the build output, which covers only
+      // routes whose sources are all static
+      const isStaticBySourceFile = new Map<string, boolean>();
+      const record = (sourceFile: string | undefined, isStatic: boolean) => {
+        if (sourceFile) {
+          isStaticBySourceFile.set(
+            sourceFile,
+            isStatic && (isStaticBySourceFile.get(sourceFile) ?? true),
+          );
         }
-      },
-    });
-    await utils.saveBuildMetadata(
-      CREATE_PAGES_CONFIGS_KEY,
-      JSON.stringify(configs.map(toSerializable)),
-    );
-  };
+      };
+      for (const config of registry.getAll()) {
+        if (config.type === 'route') {
+          record(config.rootElement.sourceFile, config.isStatic);
+          for (const element of Object.values(config.elements)) {
+            record(element.sourceFile, config.isStatic);
+          }
+          for (const id of config.slices ?? []) {
+            const sourceFile =
+              registry.findSliceConfig(id)?.sliceConfig.sourceFile;
+            record(sourceFile, config.isStatic);
+          }
+        } else {
+          record(config.sourceFile, config.isStatic);
+        }
+      }
+      return Array.from(isStaticBySourceFile)
+        .filter(([, isStatic]) => isStatic)
+        .map(([file]) => file);
+    },
+  });
   return {
-    handleRequest,
-    handleBuild,
+    ...router,
     unstable_getRouterConfigs: async () => registry.getAll(),
   };
 };

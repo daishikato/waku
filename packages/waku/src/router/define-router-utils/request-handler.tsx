@@ -82,10 +82,14 @@ export function createRequestHandler({
   resolve,
   routeEntries,
   runHandled,
+  loadStaticOutput,
 }: {
   resolve: Resolve;
   routeEntries: ReturnType<typeof createRouteEntries>;
   runHandled: <T>(req: Request, fn: () => Promise<T>) => Promise<T>;
+  loadStaticOutput: (
+    loadBuildMetadata: (key: string) => Promise<string | undefined>,
+  ) => Promise<void>;
 }): HandleRequest {
   const requestElementCache = createElementCache();
   let requestElementCacheInit: Promise<void> | undefined;
@@ -132,6 +136,7 @@ export function createRequestHandler({
           options,
         );
       requestElementCacheInit ??= (async () => {
+        await loadStaticOutput(loadBuildMetadata);
         const cachedElementsMetadata = await loadBuildMetadata(
           ROUTER_METADATA.cachedElements,
         );
