@@ -12,6 +12,11 @@ export type HandlerInterceptor = NonNullable<
   Parameters<typeof defineRouter>[0]['unstable_interceptors']
 >[number];
 
+export type CacheAtBuild = <T>(
+  key: string,
+  compute: () => Promise<T>,
+) => Promise<T>;
+
 export type SlotId = string;
 
 export type RendererOptions = { routePath: string; query: string | undefined };

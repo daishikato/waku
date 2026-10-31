@@ -95,7 +95,7 @@ export const getConfig = async () => {
 };
 ```
 
-At build time, Waku calls `getConfig`, receives the slugs, and prerenders one page per post. The component code is unchanged; only the declaration of when it runs is different. Note that paths outside the list now return 404 instead of rendering the component.
+At build time, Waku calls `getConfig`, receives the slugs, and prerenders one page per post. In production, the server reuses that result instead of calling `getConfig` again, as long as it contains no functions. The component code is unchanged; only the declaration of when it runs is different. Note that paths outside the list now return 404 instead of rendering the component.
 
 ## Choosing a mode
 

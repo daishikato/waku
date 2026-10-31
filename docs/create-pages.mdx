@@ -824,6 +824,28 @@ The `HandlerInterceptor` type is available from `waku/router/server`. The file-s
 
 See [Request Context](/guides/request-context) for seeding your own store and [Configure CSP](/guides/csp) for the nonce recipe.
 
+### Build-time data
+
+The `createPages` callback also runs in production, because that is where the components come from. To keep data that is only reachable at build time, such as a CMS list for `staticPaths`, out of production, wrap it in `unstable_cacheAtBuild`. The build computes and saves the result, and production reuses it without running the function again. A result containing a function is not saved, so production computes it again; development always computes it. Each key must be unique within one `createPages`.
+
+```tsx
+const pages = createPages(async ({ createPage, unstable_cacheAtBuild }) => {
+  const slugs = await unstable_cacheAtBuild('blog-slugs', () =>
+    fetchBlogSlugs(),
+  );
+  return [
+    createPage({
+      render: 'static',
+      path: '/blog/[slug]',
+      staticPaths: slugs,
+      component: BlogArticlePage,
+    }),
+  ];
+});
+```
+
+The file-system router does the same with each module's `getConfig`.
+
 ### Build options
 
 `createPages` accepts an optional second argument with `unstable_skipBuild`. This callback receives a route path and can skip static build output for matching static routes or APIs.
