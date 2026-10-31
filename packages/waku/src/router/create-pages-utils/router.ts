@@ -13,11 +13,30 @@ import type {
 } from './config.js';
 import { createRouteResolver } from './route-resolver.js';
 
-const isPlainData = (value: unknown): boolean =>
-  typeof value !== 'function' &&
-  (typeof value !== 'object' ||
+// only values that come back unchanged from JSON are saved for production
+const isPlainData = (value: unknown): boolean => {
+  if (
     value === null ||
-    Object.values(value).every(isPlainData));
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return true;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+  if (Array.isArray(value)) {
+    return value.every(isPlainData);
+  }
+  if (typeof value !== 'object') {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.values(value).every(isPlainData)
+  );
+};
 
 export const createConfiguredRouter = (fns: {
   getConfigs: (cacheAtBuild: CacheAtBuild) => Promise<Iterable<RuntimeConfig>>;
@@ -25,17 +44,22 @@ export const createConfiguredRouter = (fns: {
   unstable_interceptors?: HandlerInterceptor[];
 }) => {
   let builtValueByKey = new Map<string, unknown>();
-  const plainValueByKey = new Map<string, unknown>();
+  const savedJsonByKey = new Map<string, string>();
+  const cachedKeys = new Set<string>();
   const cacheAtBuild: CacheAtBuild = async <T>(
     key: string,
     compute: () => Promise<T>,
   ) => {
+    if (cachedKeys.has(key)) {
+      throw new Error('unstable_cacheAtBuild: duplicate key ' + key);
+    }
+    cachedKeys.add(key);
     if (builtValueByKey.has(key)) {
       return builtValueByKey.get(key) as T;
     }
     const value = await compute();
     if (isPlainData(value)) {
-      plainValueByKey.set(key, value);
+      savedJsonByKey.set(key, JSON.stringify(value));
     }
     return value;
   };
@@ -103,7 +127,11 @@ export const createConfiguredRouter = (fns: {
       await registry.initialize();
     },
     unstable_getBuildMetadata: async () =>
-      JSON.stringify(Object.fromEntries(plainValueByKey)),
+      JSON.stringify(
+        Object.fromEntries(
+          Array.from(savedJsonByKey, ([key, json]) => [key, JSON.parse(json)]),
+        ),
+      ),
     unstable_getPrunableFiles: async () => {
       const isStaticBySourceFile = new Map<string, boolean>();
       const record = (sourceFile: string | undefined, isStatic: boolean) => {

@@ -496,9 +496,11 @@ export const createPages = <
      * Returns the result of `compute`, which the build computes and saves so
      * production reuses it without running `compute` again. Use it for config
      * data that is only reachable at build time, such as a list for
-     * `staticPaths`. A result containing a function is not saved, so
-     * production computes it again; development always computes it. `key`
-     * must be unique within this `createPages`.
+     * `staticPaths`. Only plain JSON data is saved: plain objects, arrays,
+     * strings, finite numbers, booleans and `null`. Production computes any
+     * other result again, such as one containing a function, a `Date` or a
+     * class instance; development always computes it. Each `key` can be used
+     * once within this `createPages`.
      */
     unstable_cacheAtBuild: CacheAtBuild;
   }) => Promise<AllPages>,

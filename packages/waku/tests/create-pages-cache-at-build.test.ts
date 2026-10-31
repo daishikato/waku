@@ -95,24 +95,64 @@ describe('unstable_cacheAtBuild', () => {
     ]);
   });
 
-  it('computes a value containing a function again in production', async () => {
+  it.each([
+    ['a function', { parse: () => 'value' }],
+    ['a Date', new Date(0)],
+    [
+      'a class instance',
+      new (class Codec {
+        parse() {
+          return 'value';
+        }
+      })(),
+    ],
+  ])('computes %s again in production', async (_, value) => {
     const seen: unknown[] = [];
     const buildMetadata = await build(
-      createPagesWithValue(
-        'codec',
-        async () => ({ parse: () => 'build' }),
-        seen,
-      ),
+      createPagesWithValue('value', async () => value, seen),
     );
 
-    const computeInProduction = vi.fn(async () => ({ parse: () => 'runtime' }));
+    const computeInProduction = vi.fn(async () => value);
     await requestRoute(
-      createPagesWithValue('codec', computeInProduction, seen),
+      createPagesWithValue('value', computeInProduction, seen),
       '/',
       buildMetadata,
     );
 
     expect(computeInProduction).toHaveBeenCalledOnce();
+  });
+
+  it('saves a value as it was when computed', async () => {
+    const buildMetadata = await build(
+      createPages(async ({ createPage, unstable_cacheAtBuild }) => {
+        const slugs = await unstable_cacheAtBuild('slugs', async () => ['a']);
+        slugs.push('b');
+        return [createPage({ path: '/', render: 'dynamic', component: Page })];
+      }),
+    );
+
+    const seen: unknown[] = [];
+    await requestRoute(
+      createPagesWithValue('slugs', async () => [], seen),
+      '/',
+      buildMetadata,
+    );
+
+    expect(seen).toEqual([['a']]);
+  });
+
+  it('rejects a key used twice', async () => {
+    const router = createPages(
+      async ({ createPage, unstable_cacheAtBuild }) => {
+        await unstable_cacheAtBuild('posts', async () => ['a']);
+        await unstable_cacheAtBuild('posts', async () => ['b']);
+        return [createPage({ path: '/', render: 'dynamic', component: Page })];
+      },
+    );
+
+    await expect(build(router)).rejects.toThrow(
+      'unstable_cacheAtBuild: duplicate key posts',
+    );
   });
 
   it('keeps the saved values of each combined router apart', async () => {
@@ -141,13 +181,16 @@ describe('unstable_cacheAtBuild', () => {
     const NewsLayout = ({ children }: { children: ReactNode }) =>
       createElement('section', null, children);
     // a static page under a dynamic layout stays in the server bundle
-    const getPageConfig = vi.fn(async () => ({ render: 'static' as const }));
+    const getPageConfig = vi.fn(async () => ({
+      render: 'static' as const,
+      staticPaths: ['a'],
+    }));
     const modules = {
       './pages/news/_layout.tsx': async () => ({
         default: NewsLayout,
         getConfig: async () => ({ render: 'dynamic' as const }),
       }),
-      './pages/news/index.tsx': async () => ({
+      './pages/news/[slug].tsx': async () => ({
         default: Page,
         getConfig: getPageConfig,
       }),
@@ -156,12 +199,12 @@ describe('unstable_cacheAtBuild', () => {
 
     const elements = await requestRoute(
       fsRouter(modules),
-      '/news',
+      '/news/a',
       buildMetadata,
     );
 
     expect(getPageConfig).toHaveBeenCalledOnce();
-    expect(elements?.ROUTE).toEqual(['/news', '']);
+    expect(elements?.ROUTE).toEqual(['/news/a', '']);
   });
 });
 
