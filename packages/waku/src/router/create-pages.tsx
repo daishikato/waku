@@ -7,6 +7,7 @@ import {
 import { ErrorBoundary } from '../router/client.js';
 import type {
   ApiHandler,
+  CacheAtBuild,
   HandlerInterceptor,
 } from './create-pages-utils/config.js';
 import type {
@@ -491,6 +492,17 @@ export const createPages = <
     createApi: CreateApi;
     createSlice: CreateSlice;
     createInterceptor: CreateInterceptor;
+    /**
+     * Returns the result of `compute`, which the build computes and saves so
+     * production reuses it without running `compute` again. Use it for config
+     * data that is only reachable at build time, such as a list for
+     * `staticPaths`. Only plain JSON data is saved: plain objects, arrays,
+     * strings, finite numbers, booleans and `null`. Production computes any
+     * other result again, such as one containing a function, a `Date` or a
+     * class instance; development always computes it. Each `key` can be used
+     * once within this `createPages`.
+     */
+    unstable_cacheAtBuild: CacheAtBuild;
   }) => Promise<AllPages>,
   options?: {
     unstable_skipBuild?: (routePath: string) => boolean;
@@ -944,7 +956,7 @@ export const createPages = <
   };
 
   let ready: Promise<AllPages | void> | undefined;
-  const configure = async () => {
+  const configure = async (cacheAtBuild: CacheAtBuild) => {
     if (!configured && !ready) {
       ready = fn({
         createPage,
@@ -953,6 +965,7 @@ export const createPages = <
         createApi,
         createSlice,
         createInterceptor,
+        unstable_cacheAtBuild: cacheAtBuild,
       });
       await ready;
 
@@ -978,8 +991,8 @@ export const createPages = <
   };
 
   const definedRouter = createConfiguredRouter({
-    getConfigs: async () => {
-      await configure();
+    getConfigs: async (cacheAtBuild) => {
+      await configure(cacheAtBuild);
       type RendererOptions = { routePath: string; query: string | undefined };
       type ElementSpec = {
         isStatic: boolean;

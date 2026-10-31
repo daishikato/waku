@@ -6,15 +6,64 @@ import {
 } from '../isomorphic-utils/path-spec.js';
 import { getSliceSlotId } from '../isomorphic-utils/router-protocol.js';
 import { createConfigRegistry } from './config-registry.js';
-import type { HandlerInterceptor, RuntimeConfig } from './config.js';
+import type {
+  CacheAtBuild,
+  HandlerInterceptor,
+  RuntimeConfig,
+} from './config.js';
 import { createRouteResolver } from './route-resolver.js';
 
+// only values that come back unchanged from JSON are saved for production
+const isPlainData = (value: unknown): boolean => {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return true;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+  if (Array.isArray(value)) {
+    return value.every(isPlainData);
+  }
+  if (typeof value !== 'object') {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.values(value).every(isPlainData)
+  );
+};
+
 export const createConfiguredRouter = (fns: {
-  getConfigs: () => Promise<Iterable<RuntimeConfig>>;
+  getConfigs: (cacheAtBuild: CacheAtBuild) => Promise<Iterable<RuntimeConfig>>;
   unstable_skipBuild?: (routePath: string) => boolean;
   unstable_interceptors?: HandlerInterceptor[];
 }) => {
-  const registry = createConfigRegistry(fns.getConfigs);
+  let builtValueByKey = new Map<string, unknown>();
+  const savedJsonByKey = new Map<string, string>();
+  const cachedKeys = new Set<string>();
+  const cacheAtBuild: CacheAtBuild = async <T>(
+    key: string,
+    compute: () => Promise<T>,
+  ) => {
+    if (cachedKeys.has(key)) {
+      throw new Error('unstable_cacheAtBuild: duplicate key ' + key);
+    }
+    cachedKeys.add(key);
+    if (builtValueByKey.has(key)) {
+      return builtValueByKey.get(key) as T;
+    }
+    const value = await compute();
+    if (isPlainData(value)) {
+      savedJsonByKey.set(key, JSON.stringify(value));
+    }
+    return value;
+  };
+  const registry = createConfigRegistry(() => fns.getConfigs(cacheAtBuild));
   const resolver = createRouteResolver(registry);
   const router = defineRouter({
     resolve: resolver.resolve,
@@ -71,7 +120,18 @@ export const createConfiguredRouter = (fns: {
     ...(fns.unstable_interceptors && {
       unstable_interceptors: fns.unstable_interceptors,
     }),
-    unstable_initialize: registry.initialize,
+    unstable_initialize: async (buildMetadata) => {
+      builtValueByKey = new Map(
+        Object.entries(JSON.parse(buildMetadata || '{}')),
+      );
+      await registry.initialize();
+    },
+    unstable_getBuildMetadata: async () =>
+      JSON.stringify(
+        Object.fromEntries(
+          Array.from(savedJsonByKey, ([key, json]) => [key, JSON.parse(json)]),
+        ),
+      ),
     unstable_getPrunableFiles: async () => {
       const isStaticBySourceFile = new Map<string, boolean>();
       const record = (sourceFile: string | undefined, isStatic: boolean) => {

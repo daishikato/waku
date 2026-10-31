@@ -186,7 +186,8 @@ type RouterOptions = {
   resolveElement?: ResolveElement;
   getHas404?: () => Promise<boolean>;
   unstable_interceptors?: HandlerInterceptor[];
-  unstable_initialize?: () => Promise<void>;
+  unstable_initialize?: (buildMetadata: string | undefined) => Promise<void>;
+  unstable_getBuildMetadata?: () => Promise<string>;
   unstable_getPrunableFiles?: () => Promise<Iterable<string>>;
 };
 
@@ -225,7 +226,9 @@ type RouterOptions = {
  * longer resolves it. Immutable sources also render from the build cache, so
  * after the build `unstable_getPrunableFiles` lists source files that only
  * immutable sources use, for the server bundle to drop.
- * `unstable_initialize` runs once, before the first request or the build.
+ * `unstable_initialize` runs once, before the first request or the build. It
+ * receives the string `unstable_getBuildMetadata` returned after the build, or
+ * `undefined` during the build and in development.
  */
 export function defineRouter(fns: RouterOptions): Handlers & {
   unstable_routerOptions: RouterOptions;
@@ -306,23 +309,33 @@ export function defineRouter(fns: RouterOptions): Handlers & {
     runHandled,
   });
   let initialized: Promise<void> | undefined;
-  const initialize = () =>
+  const initialize = (loadBuildMetadata: () => Promise<string | undefined>) =>
     (initialized ??= (async () => {
-      await fns.unstable_initialize?.();
+      if (fns.unstable_initialize) {
+        await fns.unstable_initialize(await loadBuildMetadata());
+      }
     })().catch((error: unknown) => {
       initialized = undefined;
       throw error;
     }));
   return {
     handleRequest: async (input, utils) => {
-      await initialize();
+      await initialize(() =>
+        utils.loadBuildMetadata(ROUTER_METADATA.buildMetadata),
+      );
       return handleRequest(input, utils);
     },
     handleBuild: async (utils) => {
-      await initialize();
+      await initialize(async () => undefined);
       await handleBuild(utils);
       for (const file of (await fns.unstable_getPrunableFiles?.()) ?? []) {
         utils.unstable_registerPrunableFile(file);
+      }
+      if (fns.unstable_getBuildMetadata) {
+        await utils.saveBuildMetadata(
+          ROUTER_METADATA.buildMetadata,
+          await fns.unstable_getBuildMetadata(),
+        );
       }
     },
     unstable_routerOptions: fns,
@@ -428,11 +441,22 @@ export function combineRouters(
             next,
           )(),
     ],
-    unstable_initialize: async () => {
+    unstable_initialize: async (buildMetadata) => {
+      const buildMetadataList: (string | null)[] = buildMetadata
+        ? JSON.parse(buildMetadata)
+        : [];
       await Promise.all(
-        optionsList.map((options) => options.unstable_initialize?.()),
+        optionsList.map((options, index) =>
+          options.unstable_initialize?.(buildMetadataList[index] ?? undefined),
+        ),
       );
     },
+    unstable_getBuildMetadata: async () =>
+      JSON.stringify(
+        await Promise.all(
+          optionsList.map((options) => options.unstable_getBuildMetadata?.()),
+        ),
+      ),
     unstable_getPrunableFiles: async () => {
       const filesList = await Promise.all(
         optionsList.map(

@@ -82,6 +82,7 @@ export function fsRouter(
       createApi,
       createSlice,
       createInterceptor,
+      unstable_cacheAtBuild,
     }) => {
       const pagesDirPrefix = pagesDir + '/';
       for (const file of Object.keys(modules).sort()) {
@@ -118,7 +119,9 @@ export function fsRouter(
           GET?: (req: Request) => Promise<Response>;
         };
 
-        const config = await mod.getConfig?.();
+        const config =
+          mod.getConfig &&
+          (await unstable_cacheAtBuild(srcPath, mod.getConfig));
         const path =
           '/' +
           (['_layout', 'index', '_root'].includes(pathItems.at(-1)!)
