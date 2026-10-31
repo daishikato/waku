@@ -180,7 +180,7 @@ Include an element directly in a route's `elements` when it should arrive in the
 
 ## Build Output at Runtime
 
-A route whose sources are all immutable stays available from the build output, as does each built element ID. When `resolve` or `resolveElement` no longer returns one at runtime, `defineRouter` serves it from there. A router can therefore leave out modules that only those routes use:
+A route whose sources are all immutable stays available from the build output, as does each built element ID. When `resolve` or `resolveElement` no longer returns one at runtime, `defineRouter` serves it from there. Any immutable source a route still returns also renders from the build cache. A router can therefore leave out modules that only immutable sources use:
 
 - `unstable_getPrunableFiles()` runs after the build and lists those source files, so the server bundle can drop them.
 - `unstable_initialize()` runs once, before the first request or the build, so it can prepare what `resolve` reads.

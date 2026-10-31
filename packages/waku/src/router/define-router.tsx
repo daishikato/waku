@@ -222,8 +222,9 @@ type RouterOptions = {
  *
  * A route whose sources are all immutable, or a built element ID, is kept in
  * the build output: at runtime it is served from there when the router no
- * longer resolves it, so its modules can be dropped from the server bundle.
- * After the build, `unstable_getPrunableFiles` lists those source files.
+ * longer resolves it. Immutable sources also render from the build cache, so
+ * after the build `unstable_getPrunableFiles` lists source files that only
+ * immutable sources use, for the server bundle to drop.
  * `unstable_initialize` runs once, before the first request or the build.
  */
 export function defineRouter(fns: RouterOptions): Handlers & {

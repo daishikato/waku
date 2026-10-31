@@ -73,8 +73,6 @@ export const createConfiguredRouter = (fns: {
     }),
     unstable_initialize: registry.initialize,
     unstable_getPrunableFiles: async () => {
-      // pruned modules are served from the build output, which covers only
-      // routes whose sources are all static
       const isStaticBySourceFile = new Map<string, boolean>();
       const record = (sourceFile: string | undefined, isStatic: boolean) => {
         if (sourceFile) {
@@ -86,14 +84,14 @@ export const createConfiguredRouter = (fns: {
       };
       for (const config of registry.getAll()) {
         if (config.type === 'route') {
-          record(config.rootElement.sourceFile, config.isStatic);
-          for (const element of Object.values(config.elements)) {
-            record(element.sourceFile, config.isStatic);
-          }
-          for (const id of config.slices ?? []) {
-            const sourceFile =
-              registry.findSliceConfig(id)?.sliceConfig.sourceFile;
-            record(sourceFile, config.isStatic);
+          record(config.rootElement.sourceFile, config.rootElement.isStatic);
+          for (const [id, element] of Object.entries(config.elements)) {
+            // a page module also holds its route's config, which only the
+            // build output of an all-static route can stand in for
+            record(
+              element.sourceFile,
+              id.startsWith('page:') ? config.isStatic : element.isStatic,
+            );
           }
         } else {
           record(config.sourceFile, config.isStatic);

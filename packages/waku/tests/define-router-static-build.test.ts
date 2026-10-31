@@ -1,7 +1,10 @@
+import { createElement } from 'react';
+import type { ReactNode } from 'react';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { createConfiguredRouter } from '../src/router/create-pages-utils/router.js';
 import { defineRouter } from '../src/router/define-router.js';
+import { fsRouter } from '../src/router/fs-router.js';
 import {
   ROUTE_ID,
   encodeRoutePath,
@@ -465,7 +468,7 @@ describe('define-router handleBuild', () => {
     expect(register).not.toHaveBeenCalledWith('pages/shared.tsx');
   });
 
-  it('registers only source files of routes that are all static', async () => {
+  it('registers a static page file only when its whole route is static', async () => {
     const register = vi.fn();
     const { handleBuild } = createConfiguredRouter({
       getConfigs: async () => [
@@ -487,9 +490,18 @@ describe('define-router handleBuild', () => {
           type: 'route',
           pathSpec: [{ type: 'literal', name: 'news' }],
           isStatic: false,
-          rootElement: { isStatic: true, renderer: () => null },
+          rootElement: {
+            isStatic: true,
+            renderer: () => null,
+            sourceFile: 'pages/_root.tsx',
+          },
           routeElement: { isStatic: true, renderer: () => null },
           elements: {
+            'layout:/': {
+              isStatic: true,
+              renderer: () => null,
+              sourceFile: 'pages/_layout.tsx',
+            },
             'layout:/news': {
               isStatic: false,
               renderer: () => null,
@@ -516,7 +528,66 @@ describe('define-router handleBuild', () => {
     });
 
     // the build output cannot serve a static page whose layout is dynamic
-    expect(register.mock.calls).toEqual([['pages/about.tsx']]);
+    expect(register.mock.calls.flat().sort()).toEqual([
+      'pages/_layout.tsx',
+      'pages/_root.tsx',
+      'pages/about.tsx',
+    ]);
+  });
+
+  it('keeps pruned static layouts and slices in dynamic routes', async () => {
+    const Layout = ({ children }: { children: ReactNode }) =>
+      createElement('main', null, children);
+    const Dynamic = () => createElement('p', null, 'dynamic');
+    const dynamicModule = async () => ({
+      default: Dynamic,
+      getConfig: async () => ({
+        render: 'dynamic' as const,
+        slices: ['hello'],
+      }),
+    });
+    const buildMetadata = new Map<string, string>();
+    await fsRouter({
+      './pages/_layout.tsx': async () => ({ default: Layout }),
+      './pages/_slices/hello.tsx': async () => ({ default: () => 'hello' }),
+      './pages/dynamic.tsx': dynamicModule,
+    }).handleBuild({
+      renderRsc: () => Promise.resolve(makeStream()),
+      renderHtml: vi.fn().mockResolvedValue(new Response('<!doctype html>')),
+      rscPathToFileName: (rscPath: string) => `dist/${rscPath}.txt`,
+      saveBuildMetadata: async (key, value) => {
+        buildMetadata.set(key, value);
+      },
+      generateFile: vi.fn(),
+      generateDefaultHtml: vi.fn(),
+      unstable_registerPrunableFile: vi.fn(),
+    });
+
+    // pruned modules are empty stubs at runtime
+    const renderRsc = vi.fn().mockResolvedValue(makeStream());
+    await fsRouter({
+      './pages/_layout.tsx': async () => ({}),
+      './pages/_slices/hello.tsx': async () => ({}),
+      './pages/dynamic.tsx': dynamicModule,
+    }).handleRequest(
+      {
+        type: 'rsc',
+        rscPath: 'R/dynamic',
+        rscParams: undefined,
+        pathname: '/RSC/R/dynamic.txt',
+        req: new Request('http://localhost/RSC/R/dynamic.txt'),
+      },
+      {
+        renderRsc,
+        renderHtml: vi.fn(),
+        renderHtmlFallback: vi.fn(),
+        loadBuildMetadata: async (key: string) => buildMetadata.get(key),
+      },
+    );
+
+    expect(Object.keys(renderRsc.mock.calls[0]![0])).toEqual(
+      expect.arrayContaining(['layout:/', 'slice:hello', 'page:/dynamic']),
+    );
   });
 
   it('keeps a pruned static 404 route available at runtime', async () => {
